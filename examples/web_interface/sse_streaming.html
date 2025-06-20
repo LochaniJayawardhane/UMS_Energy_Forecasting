@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Energy Forecasting - Real-time Training Status</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .header {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #555;
+        }
+        input, select, button {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #6c757d;
+            cursor: not-allowed;
+        }
+        .status-container {
+            margin-top: 30px;
+            padding: 20px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+            border-left: 4px solid #007bff;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background-color: #e9ecef;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+        .progress-fill {
+            height: 100%;
+            background-color: #28a745;
+            transition: width 0.3s ease;
+            border-radius: 10px;
+        }
+        .log-container {
+            margin-top: 20px;
+            max-height: 300px;
+            overflow-y: auto;
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 10px;
+        }
+        .log-entry {
+            margin-bottom: 8px;
+            padding: 5px;
+            border-radius: 3px;
+            font-family: monospace;
+            font-size: 14px;
+        }
+        .log-info { background-color: #d1ecf1; color: #0c5460; }
+        .log-success { background-color: #d4edda; color: #155724; }
+        .log-error { background-color: #f8d7da; color: #721c24; }
+        .log-warning { background-color: #fff3cd; color: #856404; }
+        .connection-status {
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            font-weight: bold;
+        }
+        .connected { background-color: #d4edda; color: #155724; }
+        .disconnected { background-color: #f8d7da; color: #721c24; }
+        .connecting { background-color: #fff3cd; color: #856404; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🌟 Energy Forecasting System</h1>
+            <h2>Real-time Training Status with SSE</h2>
+        </div>
+
+        <!-- Training Form -->
+        <div class="form-group">
+            <label for="meterId">Meter ID:</label>
+            <input type="text" id="meterId" value="meter_test_001" placeholder="e.g., meter_test_001">
+        </div>
+
+        <div class="form-group">
+            <label for="meterType">Meter Type:</label>
+            <select id="meterType">
+                <option value="electricity">Electricity</option>
+                <option value="water">Water</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="apiUrl">API URL:</label>
+            <input type="text" id="apiUrl" value="http://localhost:8000" placeholder="http://localhost:8000">
+        </div>
+
+        <button id="startTraining" onclick="startTraining()">🚀 Start Training</button>
+        <button id="stopStream" onclick="stopStream()" disabled>⏹️ Stop Stream</button>
+
+        <!-- Connection Status -->
+        <div id="connectionStatus" class="connection-status disconnected" style="display: none;">
+            ❌ Disconnected
+        </div>
+
+        <!-- Status Display -->
+        <div id="statusContainer" class="status-container" style="display: none;">
+            <h3>📊 Training Status</h3>
+            <div>
+                <strong>Task ID:</strong> <span id="taskId">-</span>
+            </div>
+            <div>
+                <strong>Status:</strong> <span id="status">-</span>
+            </div>
+            <div>
+                <strong>Progress:</strong> <span id="progress">0</span>%
+            </div>
+            <div class="progress-bar">
+                <div id="progressBar" class="progress-fill" style="width: 0%"></div>
+            </div>
+            <div>
+                <strong>Message:</strong> <span id="message">-</span>
+            </div>
+            <div>
+                <strong>Updated:</strong> <span id="updatedAt">-</span>
+            </div>
+            <div id="etaContainer" style="display: none;">
+                <strong>ETA:</strong> <span id="eta">-</span>
+            </div>
+        </div>
+
+        <!-- Log Container -->
+        <div id="logContainer" class="log-container" style="display: none;">
+            <h4>📝 Real-time Log</h4>
+            <div id="logEntries"></div>
+        </div>
+    </div>
+
+    <script>
+        let eventSource = null;
+        let currentTaskId = null;
+
+        function addLogEntry(message, type = 'info') {
+            const logEntries = document.getElementById('logEntries');
+            const entry = document.createElement('div');
+            entry.className = `log-entry log-${type}`;
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logEntries.appendChild(entry);
+            logEntries.scrollTop = logEntries.scrollHeight;
+        }
+
+        function updateConnectionStatus(status) {
+            const statusEl = document.getElementById('connectionStatus');
+            statusEl.style.display = 'block';
+            
+            switch(status) {
+                case 'connected':
+                    statusEl.className = 'connection-status connected';
+                    statusEl.textContent = '✅ Connected to SSE Stream';
+                    break;
+                case 'connecting':
+                    statusEl.className = 'connection-status connecting';
+                    statusEl.textContent = '🔄 Connecting to SSE Stream...';
+                    break;
+                case 'disconnected':
+                    statusEl.className = 'connection-status disconnected';
+                    statusEl.textContent = '❌ Disconnected from SSE Stream';
+                    break;
+            }
+        }
+
+        function updateStatus(data) {
+            document.getElementById('taskId').textContent = data.task_id || '-';
+            document.getElementById('status').textContent = data.status || '-';
+            document.getElementById('progress').textContent = data.progress || 0;
+            document.getElementById('message').textContent = data.message || '-';
+            document.getElementById('updatedAt').textContent = data.updated_at || '-';
+            
+            // Update progress bar
+            const progressBar = document.getElementById('progressBar');
+            progressBar.style.width = `${data.progress || 0}%`;
+            
+            // Update progress bar color based on status
+            if (data.status === 'SUCCESS') {
+                progressBar.style.backgroundColor = '#28a745';
+            } else if (data.status === 'FAILURE') {
+                progressBar.style.backgroundColor = '#dc3545';
+            } else {
+                progressBar.style.backgroundColor = '#007bff';
+            }
+            
+            // Show/hide ETA
+            const etaContainer = document.getElementById('etaContainer');
+            const etaEl = document.getElementById('eta');
+            if (data.estimated_completion) {
+                etaEl.textContent = new Date(data.estimated_completion).toLocaleString();
+                etaContainer.style.display = 'block';
+            } else {
+                etaContainer.style.display = 'none';
+            }
+        }
+
+        async function startTraining() {
+            const meterId = document.getElementById('meterId').value;
+            const meterType = document.getElementById('meterType').value;
+            const apiUrl = document.getElementById('apiUrl').value;
+
+            if (!meterId || !meterType || !apiUrl) {
+                alert('Please fill in all fields');
+                return;
+            }
+
+            try {
+                // Disable start button
+                document.getElementById('startTraining').disabled = true;
+                addLogEntry('Starting training task...', 'info');
+
+                // Start training task
+                const response = await fetch(`${apiUrl}/trainmodel/`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        meter_id: meterId,
+                        meter_type: meterType
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const result = await response.json();
+                currentTaskId = result.task_id;
+
+                addLogEntry(`Training task started! Task ID: ${currentTaskId}`, 'success');
+                
+                // Show status container
+                document.getElementById('statusContainer').style.display = 'block';
+                document.getElementById('logContainer').style.display = 'block';
+                
+                // Start SSE stream
+                startSSEStream(currentTaskId, apiUrl);
+
+            } catch (error) {
+                addLogEntry(`Error starting training: ${error.message}`, 'error');
+                document.getElementById('startTraining').disabled = false;
+            }
+        }
+
+        function startSSEStream(taskId, apiUrl) {
+            if (eventSource) {
+                eventSource.close();
+            }
+
+            updateConnectionStatus('connecting');
+            addLogEntry('Connecting to SSE stream...', 'info');
+
+            const sseUrl = `${apiUrl}/trainmodel/stream/${taskId}`;
+            eventSource = new EventSource(sseUrl);
+
+            eventSource.onopen = function() {
+                updateConnectionStatus('connected');
+                addLogEntry('Connected to SSE stream!', 'success');
+                document.getElementById('stopStream').disabled = false;
+            };
+
+            eventSource.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    
+                    if (data.type === 'heartbeat') {
+                        // Silently handle heartbeat - no need to show in UI
+                        return;
+                    }
+                    
+                    if (data.type === 'error') {
+                        addLogEntry(`Stream error: ${data.error}`, 'error');
+                        return;
+                    }
+
+                    // Regular status update
+                    updateStatus(data);
+                    
+                    const statusMsg = `${data.status}: ${data.progress}% - ${data.message}`;
+                    const logType = data.status === 'SUCCESS' ? 'success' : 
+                                   data.status === 'FAILURE' ? 'error' : 'info';
+                    
+                    addLogEntry(statusMsg, logType);
+
+                    // Handle completion
+                    if (data.status === 'SUCCESS' || data.status === 'FAILURE') {
+                        addLogEntry(`Task completed with status: ${data.status}`, 
+                                   data.status === 'SUCCESS' ? 'success' : 'error');
+                        
+                        if (data.result && data.result.details) {
+                            const details = data.result.details;
+                            addLogEntry(`📊 Data Points: ${details.data_points}`, 'info');
+                            addLogEntry(`💾 Model Path: ${details.model_path}`, 'info');
+                            addLogEntry(`⏱️ Training Time: ${details.training_time_seconds}s`, 'info');
+                        }
+                        
+                        // Re-enable start button
+                        document.getElementById('startTraining').disabled = false;
+                        document.getElementById('stopStream').disabled = true;
+                        updateConnectionStatus('disconnected');
+                    }
+
+                } catch (error) {
+                    addLogEntry(`Error parsing SSE data: ${error.message}`, 'error');
+                }
+            };
+
+            eventSource.onerror = function(event) {
+                addLogEntry('SSE connection error occurred', 'error');
+                updateConnectionStatus('disconnected');
+                document.getElementById('startTraining').disabled = false;
+                document.getElementById('stopStream').disabled = true;
+            };
+        }
+
+        function stopStream() {
+            if (eventSource) {
+                eventSource.close();
+                eventSource = null;
+                addLogEntry('SSE stream stopped by user', 'warning');
+                updateConnectionStatus('disconnected');
+                document.getElementById('startTraining').disabled = false;
+                document.getElementById('stopStream').disabled = true;
+            }
+        }
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', function() {
+            if (eventSource) {
+                eventSource.close();
+            }
+        });
+    </script>
+</body>
+</html> 

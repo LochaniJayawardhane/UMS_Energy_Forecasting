@@ -5,7 +5,7 @@ from dramatiq.brokers.redis import RedisBroker
 from dramatiq.middleware import CurrentMessage, Retries, TimeLimit, Callbacks, Pipelines
 from dramatiq.results import Results
 from dramatiq.results.backends import RedisBackend
-from logger_config import get_logger
+from src.logger_config import get_logger
 
 logger = get_logger("dramatiq.broker")
 

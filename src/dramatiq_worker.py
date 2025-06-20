@@ -11,13 +11,14 @@ import signal
 import time
 from pathlib import Path
 
-# Add current directory to Python path
+# Add project root to Python path
 current_dir = Path(__file__).parent.absolute()
-sys.path.insert(0, str(current_dir))
+project_root = current_dir.parent
+sys.path.insert(0, str(project_root))
 
-from logger_config import setup_logging, get_logger, debug_mode_from_env
-from dramatiq_broker import broker
-import task_system  # This imports and registers the tasks
+from src.logger_config import setup_logging, get_logger, debug_mode_from_env
+from src.dramatiq_broker import broker
+import src.task_system as task_system  # This imports and registers the tasks
 
 # Initialize logging
 debug_mode = debug_mode_from_env()
@@ -48,7 +49,7 @@ def main():
         # Set up worker arguments
         worker_args = [
             "dramatiq",
-            "task_system",  # Module containing our tasks
+            "src.task_system",  # Module containing our tasks
             "--processes", "2",  # Number of worker processes
             "--threads", "2",    # Number of threads per process
             "--verbose",         # Verbose logging

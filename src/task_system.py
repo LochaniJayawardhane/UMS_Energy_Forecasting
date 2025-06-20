@@ -12,10 +12,10 @@ import pandas as pd
 from dramatiq.results import Results
 from dramatiq.results.backends import RedisBackend
 
-from dramatiq_broker import broker, get_broker
-from influx_client import InfluxClient
-from utils import train_electricity_model, train_water_model
-from logger_config import TaskLogger, get_logger
+from src.dramatiq_broker import broker, get_broker
+from src.influx_client import InfluxClient
+from src.utils import train_electricity_model, train_water_model
+from src.logger_config import TaskLogger, get_logger
 
 logger = get_logger("task_system")
 
@@ -31,6 +31,7 @@ class TaskState(Enum):
     SAVING_MODEL = "SAVING_MODEL"
     SUCCESS = "SUCCESS"
     FAILED = "FAILED"
+    CANCELLED = "CANCELLED"
 
 @dataclass
 class TaskProgress:
@@ -121,12 +122,42 @@ class TaskTracker:
         
         # Store in Redis with 1 hour expiration
         key = f"task_progress:{task_id}"
+        progress_data = task_progress.to_dict()
+        
         try:
-            self.redis_client.setex(key, 3600, json.dumps(task_progress.to_dict()))
+            self.redis_client.setex(key, 3600, json.dumps(progress_data))
             self.logger.debug("Progress updated", task_id=task_id, state=state.value, 
                             progress=progress, message=message)
+            
+            # Publish update to Redis Pub/Sub for real-time SSE streaming
+            self._publish_update(task_id, progress_data)
+            
         except Exception as e:
             self.logger.error("Failed to update progress", task_id=task_id, error=str(e))
+    
+    def _publish_update(self, task_id: str, progress_data: Dict[str, Any]):
+        """
+        Publish task progress update to Redis Pub/Sub channel for real-time streaming.
+        
+        This enables Server-Sent Events (SSE) to receive real-time updates
+        without polling the status endpoint.
+        """
+        try:
+            channel = f"task_updates:{task_id}"
+            message = json.dumps(progress_data)
+            
+            # Publish to Redis channel
+            published = self.redis_client.publish(channel, message)
+            
+            if published > 0:
+                self.logger.debug("Update published to SSE channel", 
+                                task_id=task_id, channel=channel, subscribers=published)
+            else:
+                self.logger.debug("No SSE subscribers for task", task_id=task_id, channel=channel)
+                
+        except Exception as e:
+            # Don't fail the main operation if pub/sub fails
+            self.logger.warning("Failed to publish SSE update", task_id=task_id, error=str(e))
     
     def get_progress(self, task_id: str) -> Optional[Dict]:
         """Get task progress from Redis"""
@@ -148,10 +179,14 @@ class TaskTracker:
 # Global task tracker
 task_tracker = TaskTracker()
 
-@dramatiq.actor(store_results=True, max_retries=3, min_backoff=1000, max_backoff=30000)
+@dramatiq.actor(store_results=True, max_retries=0)  # No retries for singleton behavior
 def train_model_task(meter_id: str, meter_type: str, task_options: Dict[str, Any] = None):
     """
-    Enhanced model training task with comprehensive logging and progress tracking
+    Enhanced model training task with SINGLETON behavior and comprehensive logging.
+    
+    SINGLETON BEHAVIOR: Only ONE training task can run at a time across the entire system.
+    This task checks if it should continue running before starting heavy work.
+    If another task was started after this one, this task will cancel itself.
     """
     # Get task ID from message context
     current_message = dramatiq.middleware.CurrentMessage.get_current_message()
@@ -164,12 +199,51 @@ def train_model_task(meter_id: str, meter_type: str, task_options: Dict[str, Any
     )
     
     task_logger.info("Starting model training task")
-    task_tracker.mark_started(task_id)
+    
+    # SINGLETON CHECK: Set this as the active task and check for conflicts
+    active_task_key = "active_training_task"
+    
+    def check_if_cancelled():
+        """Check if this task should be cancelled due to singleton behavior"""
+        try:
+            current_active = task_tracker.redis_client.get(active_task_key)
+            if current_active and current_active.decode() != task_id:
+                return True
+        except:
+            pass
+        return False
+    
+    def cancel_self(reason="Cancelled - newer training task started"):
+        """Cancel this task gracefully"""
+        task_logger.info("Task cancelled", reason=reason)
+        task_tracker.update_progress(task_id, TaskState.FAILED, 0, reason, 
+                                   error=reason, error_type="CANCELLED")
+        return {'status': 'cancelled', 'reason': reason, 'task_id': task_id}
     
     try:
+        # Check if this task is the current active task
+        # (The API should have already set this task as active)
+        existing_active = task_tracker.redis_client.get(active_task_key)
+        if existing_active and existing_active.decode() != task_id:
+            # Another task is already active, cancel this one immediately
+            return cancel_self("Cancelled - newer task is already active")
+        
+        # If no active task set, set this one as active (fallback)
+        if not existing_active:
+            task_tracker.redis_client.setex(active_task_key, 3600, task_id)
+            task_logger.info("Task set as active singleton (fallback)", active_task_id=task_id)
+        else:
+            task_logger.info("Task confirmed as active singleton", active_task_id=task_id)
+        
+        task_tracker.mark_started(task_id)
+        
         # Validate inputs
         if meter_type not in ["electricity", "water"]:
             raise ValueError(f"Invalid meter_type: {meter_type}")
+        
+        # Check for cancellation before heavy work
+        if check_if_cancelled():
+            return cancel_self()
         
         # Step 1: Connect to InfluxDB (5%)
         task_tracker.update_progress(task_id, TaskState.CONNECTING, 5, 
@@ -179,6 +253,11 @@ def train_model_task(meter_id: str, meter_type: str, task_options: Dict[str, Any
         
         influx_client = InfluxClient()
         task_logger.info("InfluxDB connection established")
+        
+        # Check for cancellation
+        if check_if_cancelled():
+            influx_client.close()
+            return cancel_self()
         
         # Step 2: Fetch data (10-30%)
         task_tracker.update_progress(task_id, TaskState.FETCHING_DATA, 10, 
@@ -195,6 +274,10 @@ def train_model_task(meter_id: str, meter_type: str, task_options: Dict[str, Any
                        records_count=len(data), 
                        fetch_time_seconds=round(data_fetch_time, 2))
         
+        # Check for cancellation
+        if check_if_cancelled():
+            return cancel_self()
+        
         # Step 3: Validate data (35%)
         task_tracker.update_progress(task_id, TaskState.VALIDATING_DATA, 35, 
                                    "Validating training data...", 
@@ -206,6 +289,8 @@ def train_model_task(meter_id: str, meter_type: str, task_options: Dict[str, Any
             task_tracker.update_progress(task_id, TaskState.FAILED, 35, 
                                        "Validation failed", 
                                        error=error_msg, error_type="NO_DATA_FOUND")
+            # Clear active task on failure
+            task_tracker.redis_client.delete(active_task_key)
             return {'status': 'error', 'message': error_msg, 'error_type': 'NO_DATA_FOUND'}
         
         if len(data) < 100:
@@ -214,9 +299,15 @@ def train_model_task(meter_id: str, meter_type: str, task_options: Dict[str, Any
             task_tracker.update_progress(task_id, TaskState.FAILED, 35, 
                                        "Insufficient data", {"records_found": len(data)},
                                        error=error_msg, error_type="INSUFFICIENT_DATA")
+            # Clear active task on failure
+            task_tracker.redis_client.delete(active_task_key)
             return {'status': 'error', 'message': error_msg, 'error_type': 'INSUFFICIENT_DATA'}
         
         task_logger.info("Data validation passed", records_count=len(data))
+        
+        # Check for cancellation before training
+        if check_if_cancelled():
+            return cancel_self()
         
         # Step 4: Model training (50-85%)
         task_tracker.update_progress(task_id, TaskState.TRAINING_MODEL, 50, 
@@ -226,6 +317,10 @@ def train_model_task(meter_id: str, meter_type: str, task_options: Dict[str, Any
         
         training_start_time = time.time()
         
+        # Check for cancellation during training setup
+        if check_if_cancelled():
+            return cancel_self()
+        
         if meter_type == "electricity":
             model = train_electricity_model(data)
         else:
@@ -234,12 +329,18 @@ def train_model_task(meter_id: str, meter_type: str, task_options: Dict[str, Any
         training_time = time.time() - training_start_time
         task_logger.info("Model training completed", training_time_seconds=round(training_time, 2))
         
+        # Final check before saving
+        if check_if_cancelled():
+            return cancel_self()
+        
         # Step 5: Save model (90%)
         task_tracker.update_progress(task_id, TaskState.SAVING_MODEL, 90, 
                                    "Saving trained model...", {"step": "model_saving"})
         task_logger.info("Saving trained model")
         
-        model_dir = f"models/{meter_type}"
+        # Get project root directory (parent of src)
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        model_dir = os.path.join(project_root, f"models/{meter_type}")
         os.makedirs(model_dir, exist_ok=True)
         model_path = os.path.join(model_dir, f"{meter_id}.h5")
         
@@ -263,6 +364,9 @@ def train_model_task(meter_id: str, meter_type: str, task_options: Dict[str, Any
                                    success_details)
         
         task_logger.info("Task completed successfully", **success_details)
+        
+        # Clear the active task marker on success
+        task_tracker.redis_client.delete(active_task_key)
         
         return {
             'status': 'success',
@@ -290,6 +394,12 @@ def train_model_task(meter_id: str, meter_type: str, task_options: Dict[str, Any
                                    "Task failed", {"error_traceback": error_traceback},
                                    error=error_message, error_type=error_type)
         
+        # Clear the active task marker on failure
+        try:
+            task_tracker.redis_client.delete(active_task_key)
+        except:
+            pass
+        
         return {
             'status': 'error',
             'message': error_message,
@@ -298,24 +408,22 @@ def train_model_task(meter_id: str, meter_type: str, task_options: Dict[str, Any
         }
 
 def get_task_result(task_id: str) -> Dict[str, Any]:
-    """Get comprehensive task result including progress and final result"""
+    """
+    Get comprehensive task result including progress and final result.
+    
+    WARNING: This function is deprecated and should not be used for real-time
+    operations as it may trigger task execution. Use task_tracker.get_progress()
+    directly instead.
+    """
     try:
         progress_data = task_tracker.get_progress(task_id)
         
         if not progress_data:
             return {"task_id": task_id, "status": "NOT_FOUND", "error": "Task not found"}
         
-        # Try to get result from Dramatiq backend
-        try:
-            broker = get_broker()
-            for middleware in broker.middleware:
-                if isinstance(middleware, Results):
-                    result = middleware.backend.get_result(task_id, block=False)
-                    if result is not None:
-                        progress_data['result'] = result
-                    break
-        except Exception as e:
-            logger.debug("Could not fetch result from backend", task_id=task_id, error=str(e))
+        # REMOVED: Interaction with Dramatiq backend to prevent triggering task execution
+        # The result will be included in progress_data if the task completed successfully
+        logger.debug("Task result retrieved from progress tracker only", task_id=task_id)
         
         return progress_data
         

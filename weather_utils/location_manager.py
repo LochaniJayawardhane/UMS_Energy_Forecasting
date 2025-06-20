@@ -1,22 +1,30 @@
 import json
 import os
 
+def get_config_path():
+    """Get the path to the weather config file"""
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(current_dir)
+    return os.path.join(project_root, 'config', 'weather_config.json')
+
 def ensure_config_dir():
     """Ensure the config directory exists"""
-    os.makedirs('config', exist_ok=True)
+    config_path = get_config_path()
+    config_dir = os.path.dirname(config_path)
+    os.makedirs(config_dir, exist_ok=True)
 
 def load_weather_config():
     """Load weather configuration"""
-    config_path = 'config/weather_config.json'
+    config_path = get_config_path()
     try:
         with open(config_path, 'r') as f:
             return json.load(f)
     except (FileNotFoundError, json.JSONDecodeError) as e:
-        raise Exception(f"Weather config file not found or invalid: {str(e)}. Please ensure config/weather_config.json exists with proper location settings.")
+        raise Exception(f"Weather config file not found or invalid: {str(e)}. Please ensure {config_path} exists with proper location settings.")
 
 def save_weather_config(config):
     """Save weather configuration"""
-    config_path = 'config/weather_config.json'
+    config_path = get_config_path()
     try:
         with open(config_path, 'w') as f:
             json.dump(config, f, indent=2)

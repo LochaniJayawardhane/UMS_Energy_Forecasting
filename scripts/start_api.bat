@@ -43,5 +43,6 @@ echo.
 echo Remember to start workers separately with: start_dramatiq_worker.bat
 echo.
 
-:: Start the FastAPI server with Uvicorn
-uvicorn main:app --reload --host 0.0.0.0 --port 8000 
+:: Start the FastAPI server with Uvicorn (from src directory)
+cd /d "%~dp0\.."
+uvicorn src.main:app --reload --host 0.0.0.0 --port 8000 

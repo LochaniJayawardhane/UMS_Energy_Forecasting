@@ -1,4 +1,6 @@
 from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi.responses import StreamingResponse
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Dict, Optional
 import pandas as pd
@@ -6,39 +8,60 @@ import numpy as np
 import xgboost as xgb
 import os
 import json
+import asyncio
 from datetime import datetime, timedelta
-from utils import create_features, train_electricity_model, train_water_model
-from weather_utils.location_manager import set_location, get_location
-from weather_utils.weather import get_temperature_forecast, validate_temperature_forecast_accuracy, get_temperature_series
-from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
-from sklearn.model_selection import train_test_split
-# Dramatiq imports instead of Celery
-from dramatiq_broker import broker
-from task_system import train_model_task
-
+import sys
+import os
 import threading
 import subprocess
-import sys
 import psutil
 import time
 
-from influx_client import InfluxClient
-from logger_config import setup_logging, get_logger, debug_mode_from_env
+# Add parent directory to path to import modules from project root
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, project_root)
+
+# Import from src package
+from src.utils import create_features, train_electricity_model, train_water_model
+from src.dramatiq_broker import broker
+from src.task_system import train_model_task
+from src.influx_client import InfluxClient
+from src.logger_config import setup_logging, get_logger, debug_mode_from_env
+# Task cleanup imports removed - using singleton behavior instead
+
+# Import from project root directories
+from weather_utils.location_manager import set_location, get_location
+from weather_utils.weather import get_temperature_forecast, validate_temperature_forecast_accuracy, get_temperature_series
+
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+from sklearn.model_selection import train_test_split
 
 # Setup logging
 debug_mode = debug_mode_from_env()
 setup_logging(debug=debug_mode)
 logger = get_logger("energy_forecasting.main")
 
-
+# Helper function to get project root directory
+def get_project_root():
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 app = FastAPI(title="UMS Forecasting Service (Dramatiq)")
 
+# Add CORS middleware to allow cross-origin requests
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["*"],
+)
+
 # Ensure model directories exist
 def ensure_model_dirs():
-    os.makedirs('models/electricity', exist_ok=True)
-    os.makedirs('models/water', exist_ok=True)
-    os.makedirs('config', exist_ok=True)
+    project_root = get_project_root()
+    os.makedirs(os.path.join(project_root, 'models/electricity'), exist_ok=True)
+    os.makedirs(os.path.join(project_root, 'models/water'), exist_ok=True)
+    os.makedirs(os.path.join(project_root, 'config'), exist_ok=True)
 
 ensure_model_dirs()
 
@@ -123,6 +146,10 @@ def validate_temperature_accuracy(days: int = 30):
 def train_model(request: TrainModelRequest):
     """
     Train a model for a specific meter by fetching all historical data from InfluxDB.
+    
+    STRICT SINGLETON BEHAVIOR: This endpoint IMMEDIATELY cancels ALL existing training tasks
+    and their SSE streams before starting a new one. Only ONE training task can exist at a time.
+    
     Returns a task ID that can be used to check the status.
     """
     meter_id = request.meter_id
@@ -132,14 +159,69 @@ def train_model(request: TrainModelRequest):
     if meter_type not in ["electricity", "water"]:
         raise HTTPException(status_code=400, detail="meter_type must be 'electricity' or 'water'")
     
+    import redis
+    from src.task_system import task_tracker, TaskState
+    
     try:
         logger.info("Training model request received", meter_id=meter_id, meter_type=meter_type)
         
-        # Submit task to Dramatiq
+        redis_client = redis.from_url(os.getenv('REDIS_URL', 'redis://localhost:6379/0'))
+        active_task_key = "active_training_task"
+        
+        # STEP 1: IMMEDIATELY CANCEL ALL EXISTING TASKS
+        try:
+            old_active_task = redis_client.get(active_task_key)
+            if old_active_task:
+                old_task_id = old_active_task.decode()
+                logger.info("CANCELLING previous task immediately", old_task_id=old_task_id)
+                
+                # Cancel the old task immediately in TaskTracker
+                task_tracker.update_progress(old_task_id, 
+                    TaskState.CANCELLED, 0, 
+                    "Cancelled - New training task started", 
+                    {"cancelled_by": "new_task", "reason": "singleton_enforcement"},
+                    error="Cancelled by new task", error_type="CANCELLED")
+                
+                # Broadcast cancellation to all SSE streams for this task
+                cancel_message = {
+                    "task_id": old_task_id,
+                    "status": "CANCELLED", 
+                    "progress": 0,
+                    "message": "Cancelled - New training task started",
+                    "error": "Cancelled by new task",
+                    "error_type": "CANCELLED",
+                    "updated_at": datetime.now().isoformat()
+                }
+                redis_client.publish(f"task_updates:{old_task_id}", json.dumps(cancel_message))
+                
+                logger.info("Previous task cancelled and SSE notified", old_task_id=old_task_id)
+                
+            # Clear any stale active task marker
+            redis_client.delete(active_task_key)
+            
+        except Exception as e:
+            logger.warning("Could not cancel previous tasks", error=str(e))
+        
+        # STEP 2: Submit the new task
         message = train_model_task.send(meter_id, meter_type)
         task_id = message.message_id
         
-        logger.info("Training task submitted", task_id=task_id, meter_id=meter_id, meter_type=meter_type)
+        # STEP 3: Set this as the ONLY active task
+        try:
+            redis_client.setex(active_task_key, 3600, task_id)  # 1 hour expiration
+            logger.info("New task set as ONLY active training task", 
+                       task_id=task_id, meter_id=meter_id, meter_type=meter_type)
+                
+        except Exception as e:
+            logger.warning("Could not set new active task", task_id=task_id, error=str(e))
+        
+        # STEP 4: Initialize progress tracking for new task
+        task_tracker.update_progress(task_id, 
+            TaskState.PENDING, 0, 
+            "Task submitted - waiting to start", 
+            {"meter_id": meter_id, "meter_type": meter_type})
+        
+        logger.info("NEW training task submitted and active", task_id=task_id, meter_id=meter_id, meter_type=meter_type)
         
         return TaskStatus(
             task_id=task_id,
@@ -155,12 +237,22 @@ def train_model(request: TrainModelRequest):
 def get_task_status(task_id: str):
     """
     Get the status of a training task.
+    Uses only TaskTracker to avoid triggering task execution.
     """
     try:
-        from task_system import get_task_result
+        from src.task_system import task_tracker
         
-        # Get task result using our comprehensive tracker
-        result_data = get_task_result(task_id)
+        # Get task status from TaskTracker only (no Dramatiq backend interaction)
+        result_data = task_tracker.get_progress(task_id)
+        
+        if not result_data:
+            # Task not found in progress tracking
+            return TaskStatus(
+                task_id=task_id,
+                status="NOT_FOUND",
+                progress=0,
+                error="Task not found or expired"
+            )
         
         # Convert our format to API format
         api_status = result_data.get("state", "PENDING")
@@ -179,6 +271,205 @@ def get_task_status(task_id: str):
     except Exception as e:
         logger.error("Failed to get task status", task_id=task_id, error=str(e))
         raise HTTPException(status_code=500, detail=f"Failed to get task status: {str(e)}")
+
+@app.get("/trainmodel/stream/{task_id}")
+async def stream_task_status(task_id: str):
+    """
+    Stream real-time task status updates using Server-Sent Events (SSE).
+    
+    This endpoint provides real-time updates for training tasks, eliminating
+    the need for polling the status endpoint.
+    
+    Usage:
+    - JavaScript: new EventSource('/trainmodel/stream/{task_id}')
+    - Python: requests.get('/trainmodel/stream/{task_id}', stream=True)
+    """
+    try:
+        return StreamingResponse(
+            generate_task_updates(task_id),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",  # Disable nginx buffering for real-time streaming
+            }
+        )
+    except Exception as e:
+        logger.error("Failed to start SSE stream", task_id=task_id, error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to start status stream: {str(e)}")
+
+async def generate_task_updates(task_id: str):
+    """
+    Generate Server-Sent Events for task status updates.
+    
+    This function:
+    1. Subscribes to Redis pub/sub for real-time updates
+    2. Sends initial status if available
+    3. Streams updates as they come from Redis
+    4. Closes connection when task completes or fails
+    """
+    import redis
+    
+    # Initialize Redis client for pub/sub
+    try:
+        redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
+        redis_client = redis.from_url(redis_url)
+        pubsub = redis_client.pubsub()
+        
+        # Subscribe to task-specific channel
+        channel = f"task_updates:{task_id}"
+        pubsub.subscribe(channel)
+        
+        logger.info("SSE stream started", task_id=task_id, channel=channel)
+        
+        # Send initial status if available (only from TaskTracker, not Dramatiq backend)
+        try:
+            from src.task_system import task_tracker
+            initial_status = task_tracker.get_progress(task_id)
+            if initial_status:
+                # Convert to API format
+                api_status = initial_status.get("state", "PENDING")
+                if api_status == "FAILED":
+                    api_status = "FAILURE"
+                
+                event_data = {
+                    "task_id": task_id,
+                    "status": api_status,
+                    "progress": initial_status.get("progress", 0),
+                    "message": initial_status.get("message", ""),
+                    "updated_at": initial_status.get("updated_at"),
+                    "estimated_completion": initial_status.get("estimated_completion"),
+                    "result": initial_status.get("result"),
+                    "error": initial_status.get("error"),
+                    "error_details": initial_status.get("details")
+                }
+                
+                yield f"data: {json.dumps(event_data)}\n\n"
+                
+                # If task is already completed, close the stream
+                if api_status in ["SUCCESS", "FAILURE", "CANCELLED"]:
+                    logger.info("SSE stream closed - task already completed/cancelled", task_id=task_id, status=api_status)
+                    return
+            else:
+                # If no progress found, check if this task is still active
+                redis_client_check = redis.from_url(os.getenv('REDIS_URL', 'redis://localhost:6379/0'))
+                current_active_task = redis_client_check.get("active_training_task")
+                
+                if current_active_task and current_active_task.decode() != task_id:
+                    # This task is not active anymore, it was cancelled
+                    cancelled_event = {
+                        "task_id": task_id,
+                        "status": "CANCELLED",
+                        "progress": 0,
+                        "message": "Task was cancelled by a newer training request",
+                        "error": "Cancelled by newer task",
+                        "error_type": "CANCELLED",
+                        "updated_at": datetime.now().isoformat()
+                    }
+                    yield f"data: {json.dumps(cancelled_event)}\n\n"
+                    logger.info("SSE stream closed - task was cancelled", task_id=task_id)
+                    return
+                else:
+                    # If no progress found, send a simple pending status
+                    event_data = {
+                        "task_id": task_id,
+                        "status": "PENDING",
+                        "progress": 0,
+                        "message": "Waiting for task to start...",
+                        "updated_at": datetime.now().isoformat()
+                    }
+                    yield f"data: {json.dumps(event_data)}\n\n"
+                    
+        except Exception as e:
+            logger.warning("Failed to send initial status", task_id=task_id, error=str(e))
+        
+        # Listen for real-time updates
+        timeout_seconds = 3600  # 1 hour timeout
+        start_time = time.time()
+        
+        while time.time() - start_time < timeout_seconds:
+            try:
+                # Check for new messages with timeout
+                message = pubsub.get_message(timeout=5.0)
+                
+                if message and message['type'] == 'message':
+                    try:
+                        # Parse the update from Redis
+                        update_data = json.loads(message['data'])
+                        
+                        # Convert to API format - handle both "state" and "status" fields
+                        api_status = update_data.get("state") or update_data.get("status", "PENDING")
+                        if api_status == "FAILED":
+                            api_status = "FAILURE"
+                        
+                        event_data = {
+                            "task_id": task_id,
+                            "status": api_status,
+                            "progress": update_data.get("progress", 0),
+                            "message": update_data.get("message", ""),
+                            "updated_at": update_data.get("updated_at"),
+                            "estimated_completion": update_data.get("estimated_completion"),
+                            "result": update_data.get("result"),
+                            "error": update_data.get("error"),
+                            "error_details": update_data.get("details")
+                        }
+                        
+                        # Send the update
+                        yield f"data: {json.dumps(event_data)}\n\n"
+                        
+                        # Close stream if task completed
+                        if api_status in ["SUCCESS", "FAILURE", "CANCELLED"]:
+                            logger.info("SSE stream closed - task completed/cancelled", task_id=task_id, status=api_status)
+                            break
+                            
+                    except json.JSONDecodeError as e:
+                        logger.warning("Failed to parse Redis message", task_id=task_id, error=str(e))
+                        continue
+                        
+                elif message is None:
+                    # Timeout occurred, send heartbeat
+                    heartbeat = {
+                        "task_id": task_id,
+                        "type": "heartbeat",
+                        "timestamp": datetime.now().isoformat()
+                    }
+                    yield f"data: {json.dumps(heartbeat)}\n\n"
+                    
+                # Small delay to prevent excessive CPU usage
+                await asyncio.sleep(0.1)
+                
+            except Exception as e:
+                logger.error("Error in SSE stream", task_id=task_id, error=str(e))
+                # Send error event
+                error_event = {
+                    "task_id": task_id,
+                    "type": "error",
+                    "error": str(e),
+                    "timestamp": datetime.now().isoformat()
+                }
+                yield f"data: {json.dumps(error_event)}\n\n"
+                break
+        
+        # Cleanup
+        try:
+            pubsub.unsubscribe(channel)
+            pubsub.close()
+            redis_client.close()
+        except Exception as e:
+            logger.warning("Error during SSE cleanup", task_id=task_id, error=str(e))
+            
+        logger.info("SSE stream ended", task_id=task_id)
+        
+    except Exception as e:
+        logger.error("Failed to initialize SSE stream", task_id=task_id, error=str(e))
+        # Send error and close
+        error_event = {
+            "task_id": task_id,
+            "type": "error", 
+            "error": f"Failed to initialize stream: {str(e)}",
+            "timestamp": datetime.now().isoformat()
+        }
+        yield f"data: {json.dumps(error_event)}\n\n"
 
 def get_last_recorded_date(meter_id: str, meter_type: str) -> pd.Timestamp:
     """
@@ -486,7 +777,8 @@ def test_model_accuracy(request: ModelTestRequest):
     print("✅ Input validation passed")
 
     # Check if model exists
-    model_path = f"models/{meter_type}/{meter_id}.h5"
+    project_root = get_project_root()
+    model_path = os.path.join(project_root, f"models/{meter_type}/{meter_id}.h5")
     if not os.path.exists(model_path):
         raise HTTPException(status_code=404, detail=f"Model for {meter_type} meter {meter_id} not found. Please train the model first.")
 
@@ -670,7 +962,8 @@ def test_all_available_models(test_size: float = 0.2):
     results = {}
     
     # Find all electricity models
-    electricity_models_dir = "models/electricity"
+    project_root = get_project_root()
+    electricity_models_dir = os.path.join(project_root, "models/electricity")
     if os.path.exists(electricity_models_dir):
         for model_file in os.listdir(electricity_models_dir):
             if model_file.endswith('.h5'):
@@ -687,7 +980,7 @@ def test_all_available_models(test_size: float = 0.2):
                     results[f"electricity_{meter_id}"] = {"error": str(e)}
     
     # Find all water models
-    water_models_dir = "models/water"
+    water_models_dir = os.path.join(project_root, "models/water")
     if os.path.exists(water_models_dir):
         for model_file in os.listdir(water_models_dir):
             if model_file.endswith('.h5'):
@@ -770,4 +1063,143 @@ def check_worker_health():
     except Exception as e:
         logger.error("Worker health check failed", error=str(e))
         raise HTTPException(status_code=503, detail=f"Worker health check failed: {str(e)}")
+
+@app.post("/cleanup/tasks")
+def cleanup_tasks(max_age_hours: int = 24, max_stale_minutes: int = 30):
+    """
+    Manually trigger cleanup of old, failed, or stuck tasks.
+    
+    This endpoint:
+    1. Cancels tasks older than max_age_hours
+    2. Cancels tasks stuck without updates for max_stale_minutes  
+    3. Clears empty Redis queues
+    
+    Args:
+        max_age_hours: Maximum age in hours before tasks are cleaned up (default: 24)
+        max_stale_minutes: Minutes without updates before tasks are considered stuck (default: 30)
+    """
+    try:
+        logger.info("Manual task cleanup requested", max_age_hours=max_age_hours, max_stale_minutes=max_stale_minutes)
+        
+        # Perform cleanup
+        stats = periodic_cleanup(max_age_hours, max_stale_minutes)
+        
+        return {
+            "status": "success",
+            "message": "Task cleanup completed",
+            "statistics": stats,
+            "total_cleaned": sum(stats.values())
+        }
+        
+    except Exception as e:
+        logger.error("Manual cleanup failed", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Cleanup failed: {str(e)}")
+
+@app.get("/tasks/list")
+def list_all_tasks():
+    """
+    List all current tasks and their status.
+    
+    Useful for debugging and monitoring active tasks.
+    """
+    try:
+        from src.task_cleanup import task_cleanup
+        
+        all_tasks = task_cleanup.get_all_tasks()
+        
+        # Format for API response
+        task_list = []
+        for task_id, task_data in all_tasks.items():
+            details = task_data.get('details', {})
+            task_info = {
+                "task_id": task_id,
+                "status": task_data.get('state', 'UNKNOWN'),
+                "progress": task_data.get('progress', 0),
+                "meter_id": details.get('meter_id', 'unknown'),
+                "meter_type": details.get('meter_type', 'unknown'),
+                "started_at": task_data.get('started_at'),
+                "updated_at": task_data.get('updated_at'),
+                "message": task_data.get('message', ''),
+                "error": task_data.get('error')
+            }
+            task_list.append(task_info)
+        
+        return {
+            "total_tasks": len(task_list),
+            "tasks": task_list
+        }
+        
+    except Exception as e:
+        logger.error("Failed to list tasks", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to list tasks: {str(e)}")
+
+@app.delete("/tasks/{task_id}")
+def cancel_task(task_id: str):
+    """
+    Cancel a specific task by ID.
+    
+    This will mark the task as failed and notify any SSE streams.
+    """
+    try:
+        from src.task_cleanup import task_cleanup
+        
+        # Check if task exists
+        all_tasks = task_cleanup.get_all_tasks()
+        if task_id not in all_tasks:
+            raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+        
+        # Cancel the task
+        task_cleanup.cancel_task(task_id, reason="Cancelled by user request")
+        
+        logger.info("Task cancelled by user", task_id=task_id)
+        
+        return {
+            "status": "success",
+            "message": f"Task {task_id} has been cancelled",
+            "task_id": task_id
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to cancel task", task_id=task_id, error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to cancel task: {str(e)}")
+
+@app.get("/trainmodel/active_task")
+def get_active_task():
+    """
+    DEBUG ENDPOINT: Get the currently active training task.
+    This helps verify singleton behavior is working correctly.
+    """
+    try:
+        import redis
+        redis_client = redis.from_url(os.getenv('REDIS_URL', 'redis://localhost:6379/0'))
+        
+        active_task_key = "active_training_task"
+        active_task_id = redis_client.get(active_task_key)
+        
+        if active_task_id:
+            task_id = active_task_id.decode()
+            # Get task status
+            from src.task_system import task_tracker
+            status = task_tracker.get_progress(task_id)
+            
+            return {
+                "active_task_id": task_id,
+                "status": status,
+                "message": "Active training task found"
+            }
+        else:
+            return {
+                "active_task_id": None,
+                "status": None,
+                "message": "No active training task"
+            }
+            
+    except Exception as e:
+        logger.error("Failed to get active task", error=str(e))
+        return {
+            "error": str(e),
+            "message": "Failed to get active task info"
+        }
 

@@ -37,5 +37,6 @@ echo Worker will process tasks in the background
 echo Logs will be displayed here and saved to the logs/ directory
 echo.
 
-:: Start the Dramatiq worker
-python dramatiq_worker.py 
+:: Start the Dramatiq worker (from project root)
+cd /d "%~dp0\.."
+python src/dramatiq_worker.py 
