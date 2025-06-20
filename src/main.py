@@ -94,9 +94,7 @@ class LocationRequest(BaseModel):
 class ValidationResponse(BaseModel):
     error_metrics: Dict
 
-class TemperatureSeriesRequest(BaseModel):
-    start_date: str  # Start date in YYYY-MM-DD format
-    end_date: str    # End date in YYYY-MM-DD format
+
 
 class ModelTestRequest(BaseModel):
     meter_id: str
@@ -670,28 +668,7 @@ def forecast(request: ForecastRequest):
     
     return ForecastResponse(forecast_data=forecast_data)
 
-@app.post("/temperature/series/")
-def get_temperature_data_series(request: TemperatureSeriesRequest):
-    """
-    Retrieve historical temperature data for a date range and return a complete series 
-    of forecasted temperatures for each date within the range.
-    
-    For past dates: Returns actual historical temperatures
-    For future dates: Returns forecasted temperatures based on 3-year historical averages
-    """
-    try:
-        temperature_series = get_temperature_series(request.start_date, request.end_date)
-        
-        return {
-            "status": "success",
-            "start_date": request.start_date,
-            "end_date": request.end_date,
-            "total_days": len(temperature_series),
-            "temperature_series": temperature_series
-        }
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error retrieving temperature series: {str(e)}")
+
 
 def evaluate_model_accuracy(y_true, y_pred, meter_type: str) -> Dict:
     """
@@ -1018,152 +995,16 @@ def test_all_available_models(test_size: float = 0.2):
     
     return {"model_test_results": results}
 
-@app.get("/health/")
+@app.get("/")
 def health_check():
-    """Health check endpoint"""
-    try:
-        # Test Redis connection
-        import redis
-        r = redis.Redis(host='localhost', port=6379, db=0)
-        r.ping()
-        
-        return {
-            "status": "healthy",
-            "timestamp": datetime.now().isoformat(),
-            "services": {
-                "api": "running",
-                "redis": "connected",
-                "task_system": "dramatiq"
-            }
-        }
-    except Exception as e:
-        return {
-            "status": "unhealthy", 
-            "error": str(e),
-            "timestamp": datetime.now().isoformat()
-        }
+    """Simple health check endpoint"""
+    return {
+        "status": "healthy",
+        "service": "UMS Forecasting Service",
+        "timestamp": datetime.now().isoformat()
+    }
 
-@app.get("/health/worker")
-def check_worker_health():
-    """Check if Dramatiq workers are running and healthy"""
-    try:
-        import redis
-        r = redis.Redis(host='localhost', port=6379, db=0)
-        
-        # Check for active workers (simplified check)
-        worker_info = r.info('clients')
-        
-        return {
-            "worker_status": "running",
-            "redis_clients": worker_info.get('connected_clients', 0),
-            "task_system": "dramatiq",
-            "timestamp": datetime.now().isoformat()
-        }
-        
-    except Exception as e:
-        logger.error("Worker health check failed", error=str(e))
-        raise HTTPException(status_code=503, detail=f"Worker health check failed: {str(e)}")
 
-@app.post("/cleanup/tasks")
-def cleanup_tasks(max_age_hours: int = 24, max_stale_minutes: int = 30):
-    """
-    Manually trigger cleanup of old, failed, or stuck tasks.
-    
-    This endpoint:
-    1. Cancels tasks older than max_age_hours
-    2. Cancels tasks stuck without updates for max_stale_minutes  
-    3. Clears empty Redis queues
-    
-    Args:
-        max_age_hours: Maximum age in hours before tasks are cleaned up (default: 24)
-        max_stale_minutes: Minutes without updates before tasks are considered stuck (default: 30)
-    """
-    try:
-        logger.info("Manual task cleanup requested", max_age_hours=max_age_hours, max_stale_minutes=max_stale_minutes)
-        
-        # Perform cleanup
-        stats = periodic_cleanup(max_age_hours, max_stale_minutes)
-        
-        return {
-            "status": "success",
-            "message": "Task cleanup completed",
-            "statistics": stats,
-            "total_cleaned": sum(stats.values())
-        }
-        
-    except Exception as e:
-        logger.error("Manual cleanup failed", error=str(e))
-        raise HTTPException(status_code=500, detail=f"Cleanup failed: {str(e)}")
-
-@app.get("/tasks/list")
-def list_all_tasks():
-    """
-    List all current tasks and their status.
-    
-    Useful for debugging and monitoring active tasks.
-    """
-    try:
-        from src.task_cleanup import task_cleanup
-        
-        all_tasks = task_cleanup.get_all_tasks()
-        
-        # Format for API response
-        task_list = []
-        for task_id, task_data in all_tasks.items():
-            details = task_data.get('details', {})
-            task_info = {
-                "task_id": task_id,
-                "status": task_data.get('state', 'UNKNOWN'),
-                "progress": task_data.get('progress', 0),
-                "meter_id": details.get('meter_id', 'unknown'),
-                "meter_type": details.get('meter_type', 'unknown'),
-                "started_at": task_data.get('started_at'),
-                "updated_at": task_data.get('updated_at'),
-                "message": task_data.get('message', ''),
-                "error": task_data.get('error')
-            }
-            task_list.append(task_info)
-        
-        return {
-            "total_tasks": len(task_list),
-            "tasks": task_list
-        }
-        
-    except Exception as e:
-        logger.error("Failed to list tasks", error=str(e))
-        raise HTTPException(status_code=500, detail=f"Failed to list tasks: {str(e)}")
-
-@app.delete("/tasks/{task_id}")
-def cancel_task(task_id: str):
-    """
-    Cancel a specific task by ID.
-    
-    This will mark the task as failed and notify any SSE streams.
-    """
-    try:
-        from src.task_cleanup import task_cleanup
-        
-        # Check if task exists
-        all_tasks = task_cleanup.get_all_tasks()
-        if task_id not in all_tasks:
-            raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
-        
-        # Cancel the task
-        task_cleanup.cancel_task(task_id, reason="Cancelled by user request")
-        
-        logger.info("Task cancelled by user", task_id=task_id)
-        
-        return {
-            "status": "success",
-            "message": f"Task {task_id} has been cancelled",
-            "task_id": task_id
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Failed to cancel task", task_id=task_id, error=str(e))
-        raise HTTPException(status_code=500, detail=f"Failed to cancel task: {str(e)}")
 
 @app.get("/trainmodel/active_task")
 def get_active_task():
