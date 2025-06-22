@@ -110,7 +110,7 @@ def train_electricity_model(df):
         return -cv_scores.mean()
     
     study = optuna.create_study(direction='minimize')
-    study.optimize(objective, n_trials=8)
+    study.optimize(objective, n_trials=50)
     best_params = study.best_params
     
     # Train final model with early stopping
@@ -120,7 +120,7 @@ def train_electricity_model(df):
     
     final_model = xgb.XGBRegressor(
         **best_params,
-        early_stopping_rounds=8
+        early_stopping_rounds=50
     )
     
     eval_set = [(X_train_final, y_train_final), (X_val, y_val)]
@@ -191,7 +191,7 @@ def train_water_model(df):
         return -cv_scores.mean()
     
     study = optuna.create_study(direction='minimize')
-    study.optimize(objective, n_trials=8)
+    study.optimize(objective, n_trials=50)
     best_params = study.best_params
     
     # Train final model with early stopping
@@ -201,7 +201,7 @@ def train_water_model(df):
     
     final_model = xgb.XGBRegressor(
         **best_params,
-        early_stopping_rounds=8
+        early_stopping_rounds=50
     )
     
     eval_set = [(X_train_final, y_train_final), (X_val, y_val)]

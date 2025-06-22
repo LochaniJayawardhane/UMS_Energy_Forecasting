@@ -139,19 +139,6 @@ config/*.json
 config/*.py
 !config/example_*
 
-# Data files (can be large)
-data/
-*.csv
-*.xlsx
-*.xls
-
-# Model files (can be large)
-models/
-*.h5
-*.pkl
-*.joblib
-*.model
-*.sav
 
 # Temporary files
 temp/
@@ -187,6 +174,25 @@ redis-data/
 *.bak
 *.backup
 
-# Local test files
-test_local.py
-test_temp.py
+# Data files
+data/
+*.csv
+!data/initial_datasets/*.csv
+
+# Model files
+models/
+*.h5
+*.pkl
+*.joblib
+*.onnx
+*.tflite
+
+# Jupyter notebook checkpoints
+notebooks/.ipynb_checkpoints/
+
+# Environment variables and secrets
+.env.local
+.env.*.local
+credentials.json
+*credentials*.json
+

@@ -238,23 +238,33 @@ def test_model(meter_id: str, meter_type: str, test_size: float = 0.2) -> Tuple[
         if not historical_data:
             return {}, f"No historical data found for {meter_type} meter {meter_id}"
         
-        # Create features
-        X = create_features(pd.DataFrame({
-            'DateTime': date_range,
-            'Consumption': [0] * len(date_range)  # Placeholder values
-        }), meter_id, meter_type)
+        # Import temperature data function
+        from weather_utils.weather import get_temperature_series
         
-        # Create target variable
-        y = []
-        for date in date_range:
+        # Get temperature data for the date range
+        temperature_series = get_temperature_series(start_date, end_date)
+        
+        # Create temperature dictionary for easier lookup
+        temperature_dict = {item['date']: item['temperature'] for item in temperature_series}
+        
+        # Create DataFrame with DateTime, Consumption, and Temperature
+        df = pd.DataFrame({
+            'DateTime': date_range,
+            'Temperature': [temperature_dict.get(str(date.date()), 20.0) for date in date_range],  # Default to 20°C if missing
+            'Consumption': [0] * len(date_range)  # Placeholder values
+        })
+        
+        # Fill in actual consumption values
+        for i, date in enumerate(date_range):
             date_str = str(date.date())
             if date_str in historical_data:
-                y.append(historical_data[date_str])
-            else:
-                # If no data for this date, use 0
-                y.append(0)
+                df.loc[i, 'Consumption'] = historical_data[date_str]
         
-        y = np.array(y)
+        # Create features
+        X = create_features(df, meter_id, meter_type)
+        
+        # Create target variable
+        y = df['Consumption'].values
         
         # Split data into train and test sets
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=42)

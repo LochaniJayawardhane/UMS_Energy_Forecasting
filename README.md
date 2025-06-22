@@ -2,69 +2,192 @@
 
 A system for forecasting energy consumption (electricity and water) using machine learning models, weather data, and background task processing.
 
+## Overview
+
+This platform uses XGBoost machine learning models to predict energy consumption based on historical data and weather patterns. The system features:
+
+- **Advanced Forecasting**: Separate models for electricity and water consumption
+- **API-First Design**: RESTful API with FastAPI for integration with other systems
+- **Background Processing**: Task queue system with Dramatiq for handling long-running operations
+- **Real-time Data**: Integration with weather services for temperature data
+- **Interactive Dashboard**: Web interface for visualizing forecasts and model performance
+
 ## Project Structure
 
 ```
-Energy_Focasting/
-  - config/               # Configuration files
-  - data/                 # Data files
-  - docs/                 # Documentation
-  - examples/             # Example scripts and web interfaces
-    - scripts/            # Example scripts
-    - web_interface/      # Example web interfaces
-  - logs/                 # Log files
-  - models/               # Trained models
-  - scripts/              # Utility scripts
-    - start_api.bat       # Script to start the API server
-    - start_worker.bat    # Script to start the background worker
-  - src/                  # Source code
-    - dramatiq_broker.py  # Dramatiq broker configuration
-    - dramatiq_worker.py  # Dramatiq worker
-    - influx_client.py    # InfluxDB client
-    - logger_config.py    # Logging configuration
-    - main.py             # FastAPI application
-    - task_system.py      # Background task system
-    - utils.py            # Utility functions
-  - tests/                # Tests
-  - weather_utils/        # Weather utilities
+Energy_Forecasting/
+  - config/                # Configuration files (sensitive data excluded from git)
+  - data/
+    - initial_datasets/    # Base datasets for training and testing
+    - Merged_*.csv         # Preprocessed datasets
+  - examples/              # Example implementations and integrations
+    - scripts/             # Utility and example scripts
+    - web_interface/       # Web UI examples including SSE streaming
+  - logs/                  # Application logs
+  - models/                # Trained ML models
+    - electricity/         # Electricity consumption models (.h5)
+    - water/               # Water consumption models (.h5)
+  - scripts/               # Utility scripts
+    - start_api.bat        # Script to start the API server
+    - start_worker.bat     # Script to start the background worker
+  - src/                   # Main application code
+    - api/                 # API endpoints and routes
+      - routes/            # API route modules
+    - schemas/             # Data validation models
+    - services/            # Business logic services
+    - dramatiq_*.py        # Background task processing
+    - main.py              # FastAPI application
+  - weather_utils/         # Weather data integration utilities
 ```
 
 ## Setup
 
-1. Install dependencies:
+### Prerequisites
+
+- Python 3.8 or higher
+- Redis (for background task processing)
+- Docker (optional, for containerization)
+
+### Installation
+
+1. Clone the repository:
+```bash
+git clone https://github.com/yourusername/Energy_Forecasting.git
+cd Energy_Forecasting
+```
+
+2. Create and activate a virtual environment (optional but recommended):
+```bash
+python -m venv venv
+# On Windows
+venv\Scripts\activate
+# On macOS/Linux
+source venv/bin/activate
+```
+
+3. Install dependencies:
 ```bash
 pip install -r requirements.txt
 ```
 
-2. Start Redis (required for background tasks):
+4. Set up Redis (required for background tasks):
 ```bash
+# Using Docker
 docker run -d -p 6379:6379 --name redis redis
+```
+
+5. Configure environment variables (create a `.env` file in the project root):
+```
+DEBUG=false
+REDIS_URL=redis://localhost:6379/0
 ```
 
 ## Running the Application
 
-1. Start the API server:
+### Starting the API Server
+
+Run the API server using the provided script:
+
 ```bash
 scripts\start_api.bat
 ```
 
-2. Start the background worker:
+This will start the FastAPI server on http://localhost:8000.
+
+### Starting the Background Worker
+
+Start the background task processing worker:
+
 ```bash
 scripts\start_worker.bat
 ```
 
+This worker processes background tasks like model training and evaluation.
+
 ## API Documentation
 
-- API Documentation: http://localhost:8000/docs
-- Health Check: http://localhost:8000/
-- Worker Health: http://localhost:8000/health/worker
+When the API is running, you can access:
 
-## Documentation
+- **API Documentation**: http://localhost:8000/docs
+- **Alternative Documentation**: http://localhost:8000/redoc
+- **Health Check**: http://localhost:8000/
+- **Worker Health**: http://localhost:8000/health/worker
 
-See the `docs/` directory for detailed documentation:
+## Key Features
 
-- [System Documentation](docs/SYSTEM_DOCUMENTATION.md)
-- [Background Processing](docs/BACKGROUND_PROCESSING.md)
-- [Dramatiq README](docs/README_DRAMATIQ.md)
-- [Server-Sent Events](docs/README_SSE.md)
-- [Weather API](docs/README_WEATHER_API.md) 
+### Energy Consumption Forecasting
+
+The system provides forecasting for two types of energy consumption:
+
+- **Electricity**: Predicts electricity usage based on historical consumption patterns and temperature
+- **Water**: Forecasts water consumption using specialized models
+
+### Model Training and Evaluation
+
+- Train models for specific meters with:
+  - Automatic hyperparameter optimization using Optuna
+  - Feature engineering tailored to each consumption type
+  - Advanced metrics for model evaluation
+
+### Weather Data Integration
+
+- Automatically retrieves temperature data for forecasting
+- Correlates energy consumption with weather patterns
+
+## Deployment
+
+### Production Deployment
+
+For production deployment:
+
+1. Configure appropriate environment variables:
+   - Set `DEBUG=false` for production mode
+   - Configure `REDIS_URL` to your production Redis instance
+
+2. Use a production ASGI server:
+```bash
+uvicorn src.main:app --host 0.0.0.0 --port 8000 --workers 4
+```
+
+3. For background workers in production:
+```bash
+python -m src.dramatiq_worker
+```
+
+### Docker Deployment (Optional)
+
+1. Build Docker image:
+```bash
+docker build -t energy-forecasting:latest .
+```
+
+2. Run containers:
+```bash
+# Run Redis
+docker run -d -p 6379:6379 --name redis redis
+
+# Run API
+docker run -d -p 8000:8000 --name energy-api --link redis:redis energy-forecasting:latest python -m src.main
+
+# Run Worker
+docker run -d --name energy-worker --link redis:redis energy-forecasting:latest python -m src.dramatiq_worker
+```
+
+## Development
+
+### Debug Mode
+
+Enable debug mode for enhanced logging and auto-reloading:
+
+```bash
+set DEBUG=true
+scripts\start_api.bat
+```
+
+### Testing
+
+Run tests to ensure everything is working correctly:
+
+```bash
+pytest
+``` 
