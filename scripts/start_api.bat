@@ -1,7 +1,7 @@
 @echo off
-echo Starting Energy Forecasting API with Dramatiq...
+echo Starting Energy Forecasting API...
 echo.
-echo This will start the FastAPI server with the new Dramatiq-based background task system
+echo This will start the FastAPI server with the modular API structure
 echo The server will be available at http://localhost:8000
 echo.
 echo Press Ctrl+C to stop the server
@@ -35,14 +35,14 @@ if /i "%DEBUG%"=="true" (
 )
 
 echo.
-echo Starting FastAPI server with Dramatiq...
+echo Starting FastAPI server...
 echo API Documentation: http://localhost:8000/docs
-echo Health Check: http://localhost:8000/health/
+echo Health Check: http://localhost:8000/
 echo Worker Health: http://localhost:8000/health/worker
 echo.
-echo Remember to start workers separately with: start_dramatiq_worker.bat
+echo Remember to start workers separately with: scripts\start_worker.bat
 echo.
 
-:: Start the FastAPI server with Uvicorn (from src directory)
+:: Start the FastAPI server with Uvicorn (from project root)
 cd /d "%~dp0\.."
 uvicorn src.main:app --reload --host 0.0.0.0 --port 8000 

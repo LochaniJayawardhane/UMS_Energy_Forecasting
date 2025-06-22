@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 """
 Dramatiq Worker for Energy Forecasting System
@@ -11,11 +10,7 @@ import signal
 import time
 from pathlib import Path
 
-# Add project root to Python path
-current_dir = Path(__file__).parent.absolute()
-project_root = current_dir.parent
-sys.path.insert(0, str(project_root))
-
+# Import from src package
 from src.logger_config import setup_logging, get_logger, debug_mode_from_env
 from src.dramatiq_broker import broker
 import src.task_system as task_system  # This imports and registers the tasks

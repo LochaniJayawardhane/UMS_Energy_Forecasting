@@ -1,5 +1,5 @@
 @echo off
-echo Starting Dramatiq Worker for Energy Forecasting System...
+echo Starting Background Worker for Energy Forecasting System...
 echo.
 echo This will start background workers to process model training tasks
 echo Press Ctrl+C to stop the worker
@@ -32,11 +32,11 @@ if /i "%DEBUG%"=="true" (
 )
 
 echo.
-echo Starting Dramatiq worker...
+echo Starting background worker...
 echo Worker will process tasks in the background
 echo Logs will be displayed here and saved to the logs/ directory
 echo.
 
 :: Start the Dramatiq worker (from project root)
 cd /d "%~dp0\.."
-python src/dramatiq_worker.py 
+python -m src.dramatiq_worker 
