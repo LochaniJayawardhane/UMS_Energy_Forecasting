@@ -104,23 +104,14 @@ scripts\start_worker.bat
 
 This worker processes background tasks like model training and evaluation.
 
-## API Documentation
-
-When the API is running, you can access:
-
-- **API Documentation**: http://localhost:8000/docs
-- **Alternative Documentation**: http://localhost:8000/redoc
-- **Health Check**: http://localhost:8000/
-- **Worker Health**: http://localhost:8000/health/worker
-
 ## Key Features
 
 ### Energy Consumption Forecasting
 
 The system provides forecasting for two types of energy consumption:
 
-- **Electricity**: Predicts electricity usage based on historical consumption patterns and temperature
-- **Water**: Forecasts water consumption using specialized models
+- **Electricity**: Forecasts electricity consumption usage based on historical consumption patterns and temperature
+- **Water**: Forecasts water consumption usage based on historical consumption patterns and temperature
 
 ### Model Training and Evaluation
 
