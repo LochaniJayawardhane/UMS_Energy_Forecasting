@@ -16,8 +16,6 @@ def get_system_health() -> Dict:
     """
     Get basic system health information.
     
-    Returns:
-        Dictionary with system health metrics
     """
     try:
         # Get system info
@@ -46,9 +44,7 @@ def get_system_health() -> Dict:
 def get_worker_health() -> Dict:
     """
     Check the health of the Dramatiq worker system.
-    
-    Returns:
-        Dictionary with worker health information
+
     """
     try:
         # Check Redis connection

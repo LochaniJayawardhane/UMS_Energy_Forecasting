@@ -28,6 +28,4 @@ def worker_health():
     """
     worker_info = get_worker_health()
     
-    # We don't raise an exception here even if unhealthy,
-    # as this endpoint is meant to report the actual status
     return worker_info 

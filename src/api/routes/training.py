@@ -18,11 +18,8 @@ logger = get_logger("energy_forecasting.api.training")
 def train_model(request: TrainModelRequest):
     """
     Train a model for a specific meter by fetching all historical data from InfluxDB.
-    
-    STRICT SINGLETON BEHAVIOR: This endpoint IMMEDIATELY cancels ALL existing training tasks
-    and their SSE streams before starting a new one. Only ONE training task can exist at a time.
-    
     Returns a task ID that can be used to check the status.
+
     """
     meter_id = request.meter_id
     meter_type = request.meter_type.lower()
@@ -92,7 +89,7 @@ def train_model(request: TrainModelRequest):
 def get_task_status_endpoint(task_id: str):
     """
     Get the status of a training task.
-    Uses only TaskTracker to avoid triggering task execution.
+
     """
     try:
         # Get task status from streaming service
@@ -125,9 +122,6 @@ async def stream_task_status(task_id: str):
     """
     Stream task status updates using Server-Sent Events (SSE).
     
-    This endpoint provides real-time updates on task progress without polling.
-    The connection remains open until the task completes or fails.
-    
     Frontend can consume this with EventSource API:
     ```javascript
     const eventSource = new EventSource(`/trainmodel/stream/${taskId}`);
@@ -148,7 +142,7 @@ async def stream_task_status(task_id: str):
 @router.get("/active_task")
 def get_active_task_endpoint():
     """
-    Get the currently active training task, if any.
+    Get the currently active training task.
     """
     try:
         # Get active task from streaming service

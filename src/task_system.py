@@ -406,31 +406,3 @@ def train_model_task(meter_id: str, meter_type: str, task_options: Dict[str, Any
             'error_type': error_type,
             'task_id': task_id
         }
-
-def get_task_result(task_id: str) -> Dict[str, Any]:
-    """
-    Get comprehensive task result including progress and final result.
-    
-    WARNING: This function is deprecated and should not be used for real-time
-    operations as it may trigger task execution. Use task_tracker.get_progress()
-    directly instead.
-    """
-    try:
-        progress_data = task_tracker.get_progress(task_id)
-        
-        if not progress_data:
-            return {"task_id": task_id, "status": "NOT_FOUND", "error": "Task not found"}
-        
-        # REMOVED: Interaction with Dramatiq backend to prevent triggering task execution
-        # The result will be included in progress_data if the task completed successfully
-        logger.debug("Task result retrieved from progress tracker only", task_id=task_id)
-        
-        return progress_data
-        
-    except Exception as e:
-        logger.error("Failed to get task result", task_id=task_id, error=str(e))
-        return {
-            "task_id": task_id,
-            "status": "ERROR",
-            "error": f"Failed to get task status: {str(e)}"
-        } 

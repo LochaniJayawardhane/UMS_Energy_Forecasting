@@ -16,14 +16,6 @@ async def generate_task_updates(task_id: str) -> AsyncGenerator[str, None]:
     """
     Generate SSE updates for a task using Redis Pub/Sub.
     
-    This coroutine subscribes to a Redis channel for task updates
-    and yields them as SSE events.
-    
-    Args:
-        task_id: ID of the task to stream updates for
-        
-    Yields:
-        SSE event strings
     """
     try:
         # Import Redis
@@ -103,11 +95,6 @@ def get_task_status(task_id: str) -> Dict:
     """
     Get the status of a task.
     
-    Args:
-        task_id: ID of the task
-        
-    Returns:
-        Dictionary with task status information
     """
     try:
         # Get task status from TaskTracker
@@ -144,8 +131,6 @@ def get_active_task() -> Dict:
     """
     Get the currently active training task, if any.
     
-    Returns:
-        Dictionary with active task information
     """
     try:
         import redis
@@ -192,11 +177,6 @@ def cancel_task(task_id: str) -> Dict:
     """
     Cancel a running task.
     
-    Args:
-        task_id: ID of the task to cancel
-        
-    Returns:
-        Dictionary with cancellation result
     """
     try:
         import redis

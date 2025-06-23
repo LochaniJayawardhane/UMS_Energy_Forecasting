@@ -30,12 +30,6 @@ def get_model_path(meter_id: str, meter_type: str) -> str:
     """
     Get the path to a model file.
     
-    Args:
-        meter_id: ID of the meter
-        meter_type: Type of meter (electricity/water)
-        
-    Returns:
-        Path to the model file
     """
     ensure_model_dirs()
     return f"models/{meter_type}/{meter_id}.h5"
@@ -44,12 +38,6 @@ def load_model(meter_id: str, meter_type: str) -> Optional[xgb.XGBRegressor]:
     """
     Load a trained model for a specific meter.
     
-    Args:
-        meter_id: ID of the meter
-        meter_type: Type of meter (electricity/water)
-        
-    Returns:
-        Loaded XGBoost model or None if model doesn't exist
     """
     model_path = get_model_path(meter_id, meter_type)
     
@@ -70,12 +58,6 @@ def train_model(meter_id: str, meter_type: str) -> Tuple[bool, str, Dict]:
     """
     Train a model for a specific meter using historical data.
     
-    Args:
-        meter_id: ID of the meter
-        meter_type: Type of meter (electricity/water)
-        
-    Returns:
-        Tuple of (success, message, details)
     """
     try:
         # Get training data

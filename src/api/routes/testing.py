@@ -46,7 +46,6 @@ def test_all_available_models(test_size: float = 0.2):
     """
     Test all available trained models and return their accuracy metrics.
     
-    This is useful for monitoring the performance of all models at once.
     """
     # Validate test size
     if test_size <= 0 or test_size >= 1:

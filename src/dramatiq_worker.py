@@ -10,12 +10,10 @@ import signal
 import time
 from pathlib import Path
 
-# Import from src package
 from src.logger_config import setup_logging, get_logger, debug_mode_from_env
 from src.dramatiq_broker import broker
-import src.task_system as task_system  # This imports and registers the tasks
+import src.task_system as task_system  
 
-# Initialize logging
 debug_mode = debug_mode_from_env()
 setup_logging(debug=debug_mode)
 logger = get_logger("dramatiq.worker")
@@ -33,7 +31,7 @@ def main():
                 redis_url=os.getenv('REDIS_URL', 'redis://localhost:6379/0'),
                 working_directory=os.getcwd())
     
-    # Register signal handlers for graceful shutdown
+    # Register signal handlers
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
     

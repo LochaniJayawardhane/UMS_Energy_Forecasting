@@ -8,10 +8,7 @@ from pathlib import Path
 def setup_logging(debug: bool = False, log_file: str = None):
     """
     Setup comprehensive logging for the energy forecasting system.
-    
-    Args:
-        debug: Enable debug level logging
-        log_file: Optional log file path
+
     """
     # Create logs directory if it doesn't exist
     log_dir = Path("logs")

@@ -45,15 +45,6 @@ class InfluxClient:
         Get data for a specific meter from InfluxDB.
         If start_date and end_date are not provided, fetches all available data.
         
-        Args:
-            meter_id (str): ID of the meter
-            meter_type (str): Type of meter (electricity/water)
-            start_date (str, optional): Start date in YYYY-MM-DD format
-            end_date (str, optional): End date in YYYY-MM-DD format
-            limit (int, optional): Maximum number of records to return
-            
-        Returns:
-            DataFrame with DateTime, Consumption, and Temperature columns
         """
         # Validate meter type
         if meter_type not in ["electricity", "water"]:
@@ -124,13 +115,7 @@ class InfluxClient:
     def get_last_record(self, meter_id, meter_type):
         """
         Get the most recent record for a specific meter from InfluxDB.
-        
-        Args:
-            meter_id (str): ID of the meter
-            meter_type (str): Type of meter (electricity/water)
-            
-        Returns:
-            DataFrame with a single row containing the most recent record
+
         """
         # Validate meter type
         if meter_type not in ["electricity", "water"]:

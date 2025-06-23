@@ -14,13 +14,6 @@ def set_global_location(latitude: float, longitude: float, city: str) -> bool:
     """
     Set the global location for temperature forecasting.
     
-    Args:
-        latitude: Latitude coordinate
-        longitude: Longitude coordinate
-        city: City name
-        
-    Returns:
-        True if successful, False otherwise
     """
     try:
         success = set_location(latitude, longitude, city)
@@ -37,8 +30,6 @@ def get_global_location() -> Dict:
     """
     Get the global location used for temperature forecasting.
     
-    Returns:
-        Dictionary with location information
     """
     try:
         location = get_location()
@@ -50,12 +41,7 @@ def get_global_location() -> Dict:
 def validate_temperature_accuracy(days: int = 30) -> Dict:
     """
     Validate the accuracy of temperature forecasting.
-    
-    Args:
-        days: Number of days to validate (default: 30)
-        
-    Returns:
-        Dictionary with error metrics
+
     """
     try:
         error_metrics = validate_temperature_forecast_accuracy(test_period_days=days)
@@ -68,12 +54,6 @@ def get_temperature_data(start_date: str, end_date: str) -> Dict:
     """
     Get temperature data for a date range.
     
-    Args:
-        start_date: Start date in YYYY-MM-DD format
-        end_date: End date in YYYY-MM-DD format
-        
-    Returns:
-        Dictionary with temperature data
     """
     try:
         # Convert string dates to datetime objects if needed

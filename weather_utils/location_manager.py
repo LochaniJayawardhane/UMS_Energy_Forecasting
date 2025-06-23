@@ -36,12 +36,7 @@ def save_weather_config(config):
 def get_location():
     """
     Get the location information from weather_config.json
-    
-    Returns:
-        Dictionary with location data (lat, lon, city)
-        
-    Raises:
-        Exception: If location data cannot be loaded
+
     """
     try:
         weather_config = load_weather_config()
@@ -56,13 +51,6 @@ def set_location(lat, lon, city):
     """
     Set the location in weather_config.json
     
-    Args:
-        lat: Latitude
-        lon: Longitude
-        city: City name
-        
-    Returns:
-        Boolean indicating success
     """
     ensure_config_dir()
     

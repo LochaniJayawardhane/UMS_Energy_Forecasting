@@ -1,8 +1,6 @@
 """
 Main application module for the Energy Forecasting system.
 
-This module initializes the FastAPI application, sets up middleware,
-and includes all API routes from the src.api package.
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -44,6 +42,5 @@ def health_check():
     
     Returns basic system information and API status.
     """
-    # Instead of importing from health.py, use the service directly
     health_info = get_system_health()
     return health_info 

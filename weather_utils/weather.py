@@ -6,12 +6,12 @@ import numpy as np
 import pandas as pd
 from weather_utils.location_manager import get_location
 
-# Load weather configuration
+
 def load_weather_config():
     """Load weather API configuration from file"""
-    # Get the directory of this file
+    
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    # Go up one level to project root, then into config
+   
     config_path = os.path.join(os.path.dirname(current_dir), 'config', 'weather_config.json')
     try:
         with open(config_path, 'r') as f:
@@ -19,50 +19,30 @@ def load_weather_config():
     except (FileNotFoundError, json.JSONDecodeError) as e:
         raise Exception(f"Cannot load weather_config.json from {config_path}. Please ensure the file exists and is valid. Error: {str(e)}")
 
-# Initialize configuration
+
 WEATHER_CONFIG = load_weather_config()
 VISUAL_CROSSING_API_KEY = os.getenv("VISUAL_CROSSING_API_KEY", WEATHER_CONFIG["visual_crossing"]["api_key"])
 BASE_URL = WEATHER_CONFIG["visual_crossing"]["base_url"]
 
 def get_temperature_series(start_date, end_date):
     """
-    Retrieve historical temperature data for a date range and return a complete series 
-    of forecasted temperatures for each date within the range.
-    
     This is the main function for getting temperature data for date ranges.
     For past dates: Returns actual historical temperatures
     For future dates: Returns forecasted temperatures based on 3-year historical averages
-    
-    Args:
-        start_date: Start date (string in YYYY-MM-DD format or datetime object)
-        end_date: End date (string in YYYY-MM-DD format or datetime object)
-        
-    Returns:
-        List of dictionaries with date and temperature for each day in the range:
-        [
-            {"date": "2025-06-01", "temperature": 24.5},
-            {"date": "2025-06-02", "temperature": 25.1},
-            ...
-        ]
-        
-    Raises:
-        Exception: If temperature data cannot be retrieved
+
     """
-    # Convert string dates to datetime objects if needed
+   
     if isinstance(start_date, str):
         start_date = datetime.strptime(start_date, "%Y-%m-%d")
     if isinstance(end_date, str):
         end_date = datetime.strptime(end_date, "%Y-%m-%d")
     
-    # Generate complete date range
     date_range = pd.date_range(start=start_date, end=end_date, freq='D')
     
     print(f"Retrieving temperature series for {len(date_range)} dates from {start_date.date()} to {end_date.date()}")
     
-    # Get temperatures for the entire range
     temperatures = get_temperature_forecast(date_range)
     
-    # Build result series
     temperature_series = []
     for i, date in enumerate(date_range):
         temperature_series.append({
@@ -76,20 +56,9 @@ def get_temperature_series(start_date, end_date):
 def get_temperature_forecast(dates):
     """
     Get temperature data for requested dates using Visual Crossing Weather API.
-    
-    For past dates: Returns actual historical temperatures
-    For future dates: Calculates average temperatures from same calendar dates over past 3 years
-    
-    Args:
-        dates: pandas DatetimeIndex, list of datetime objects, or single datetime
-        
-    Returns:
-        List of temperature values (or single value if single date input)
-        
-    Raises:
-        Exception: If temperature data cannot be retrieved
+
     """
-    # Get global location
+   
     location = get_location()
     
     # Validate API key
@@ -153,13 +122,7 @@ def get_temperature_forecast(dates):
 def _get_historical_temperatures(dates, location):
     """
     Get actual historical temperatures for past dates.
-    
-    Args:
-        dates: List of past dates
-        location: Location dictionary
-        
-    Returns:
-        Dictionary mapping date strings to temperatures
+
     """
     if not dates:
         return {}
@@ -219,18 +182,7 @@ def _get_historical_temperatures(dates, location):
 def _get_forecasted_temperatures(future_dates, location):
     """
     Calculate forecasted temperatures for future dates using 3-year historical averages.
-    
-    For each future date, gets the same calendar date from the past 3 years,
-    calculates the average, and uses that as the forecast.
-    
-    Optimized to make bulk API calls for date ranges instead of individual dates.
-    
-    Args:
-        future_dates: List of future dates
-        location: Location dictionary
-        
-    Returns:
-        Dictionary mapping date strings to forecasted temperatures
+
     """
     if not future_dates:
         return {}
@@ -362,11 +314,6 @@ def _group_consecutive_dates(dates):
     """
     Group consecutive dates into ranges for efficient API calls.
     
-    Args:
-        dates: List of dates
-        
-    Returns:
-        List of (start_date, end_date) tuples
     """
     if not dates:
         return []
@@ -394,14 +341,7 @@ def _group_consecutive_dates(dates):
 def _parse_api_response(response, start_date, end_date):
     """
     Parse Visual Crossing API response and extract temperatures.
-    
-    Args:
-        response: requests.Response object
-        start_date: Start date of the request
-        end_date: End date of the request
-        
-    Returns:
-        Dictionary mapping date strings to temperatures
+
     """
     if response.status_code == 401:
         raise Exception("Invalid API key. Please check your Visual Crossing API key.")
@@ -475,13 +415,7 @@ def validate_temperature_forecast_accuracy(location=None, test_period_days=30):
     """
     Validate the Visual Crossing Weather API integration.
     Tests both historical data retrieval and future forecasting logic, including date range series.
-    
-    Args:
-        location: Dict with lat/lon coordinates (optional, uses global location if None)
-        test_period_days: Number of days to test (for testing purposes)
-        
-    Returns:
-        Dict with validation results
+
     """
     # Use provided location or get global location
     if location is None:

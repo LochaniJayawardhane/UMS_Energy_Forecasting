@@ -14,15 +14,6 @@ def get_last_recorded_date(meter_id: str, meter_type: str) -> pd.Timestamp:
     """
     Get the last recorded date from InfluxDB for a specific meter.
     
-    Args:
-        meter_id: ID of the meter
-        meter_type: Type of meter (electricity/water)
-        
-    Returns:
-        Last recorded date as pandas Timestamp
-        
-    Raises:
-        Exception: If data cannot be found or loaded
     """
     try:
         # Initialize InfluxDB client
@@ -49,14 +40,7 @@ def get_last_recorded_date(meter_id: str, meter_type: str) -> pd.Timestamp:
 def get_historical_consumption_data(meter_id: str, meter_type: str, dates: pd.DatetimeIndex) -> Dict[str, float]:
     """
     Retrieve historical consumption data from InfluxDB for specified dates.
-    
-    Args:
-        meter_id: ID of the meter
-        meter_type: Type of meter (electricity/water)
-        dates: List of dates to retrieve data for
-        
-    Returns:
-        Dictionary mapping date strings to consumption values
+
     """
     try:
         # Initialize InfluxDB client
@@ -102,17 +86,10 @@ def get_historical_consumption_data(meter_id: str, meter_type: str, dates: pd.Da
         logger.error(f"Error reading data from InfluxDB: {str(e)}")
         return {}
 
-def get_training_data(meter_id: str, meter_type: str, days: int = 365) -> pd.DataFrame:
+def get_training_data(meter_id: str, meter_type: str, days: int = 1095) -> pd.DataFrame:
     """
     Get training data for a specific meter from InfluxDB.
-    
-    Args:
-        meter_id: ID of the meter
-        meter_type: Type of meter (electricity/water)
-        days: Number of days of historical data to retrieve (default: 365)
-        
-    Returns:
-        DataFrame with DateTime, Consumption, and Temperature columns
+
     """
     try:
         # Initialize InfluxDB client
@@ -152,12 +129,7 @@ def get_training_data(meter_id: str, meter_type: str, days: int = 365) -> pd.Dat
 def get_available_meters(meter_type: Optional[str] = None) -> Dict[str, List[str]]:
     """
     Get a list of available meters from InfluxDB.
-    
-    Args:
-        meter_type: Optional filter for meter type (electricity/water)
-        
-    Returns:
-        Dictionary mapping meter types to lists of meter IDs
+
     """
     try:
         # Initialize InfluxDB client

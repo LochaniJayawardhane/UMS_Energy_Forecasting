@@ -32,7 +32,6 @@ def create_features(df: pd.DataFrame, meter_id: str, meter_type: str = None) -> 
             if col in df.columns:
                 df[col] = df[col].fillna(df[col].mean())
     else:
-        # Forecasting scenario: Use meter-type specific defaults
         if meter_type == 'electricity':
             default_consumption = 104.87  # Electricity average from training data
         elif meter_type == 'water':
@@ -45,7 +44,7 @@ def create_features(df: pd.DataFrame, meter_id: str, meter_type: str = None) -> 
         df['consumption_rolling_mean_24h'] = default_consumption
         df['temp_rolling_mean_24h'] = df['temp_rolling_mean_24h'].fillna(df['temp_rolling_mean_24h'].mean())
     
-    # Features WITHOUT meter_id (it's not predictive)
+   
     feature_columns = [
         'Temperature', 'hour', 'day', 'month', 'day_of_week', 'is_weekend',
         'consumption_lag_24', 'temp_rolling_mean_24h', 'consumption_rolling_mean_24h'
