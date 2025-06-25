@@ -9,6 +9,15 @@ import sys
 import signal
 import time
 from pathlib import Path
+from dotenv import load_dotenv
+
+# Load environment variables from .env file before importing other modules
+dotenv_path = Path(__file__).parent.parent / '.env'
+if dotenv_path.exists():
+    load_dotenv(dotenv_path=dotenv_path, encoding="latin-1")
+    print(f"Loaded environment variables from {dotenv_path}")
+else:
+    print(f"Warning: .env file not found at {dotenv_path}")
 
 from src.logger_config import setup_logging, get_logger, debug_mode_from_env
 from src.dramatiq_broker import broker
@@ -17,6 +26,16 @@ import src.task_system as task_system
 debug_mode = debug_mode_from_env()
 setup_logging(debug=debug_mode)
 logger = get_logger("dramatiq.worker")
+
+# Log environment variables for debugging (excluding sensitive ones)
+safe_env_vars = {
+    'INFLUXDB_URL': os.getenv('INFLUXDB_URL'),
+    'INFLUXDB_ORG': os.getenv('INFLUXDB_ORG'),
+    'INFLUXDB_BUCKET': os.getenv('INFLUXDB_BUCKET'),
+    'VISUAL_CROSSING_BASE_URL': os.getenv('VISUAL_CROSSING_BASE_URL'),
+    'LOCATION_CITY': os.getenv('LOCATION_CITY')
+}
+logger.info("Environment variables loaded", **{k: v for k, v in safe_env_vars.items() if v is not None})
 
 def signal_handler(signum, frame):
     """Handle shutdown signals gracefully"""

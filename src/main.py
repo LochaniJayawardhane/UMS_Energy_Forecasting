@@ -5,6 +5,16 @@ Main application module for the Energy Forecasting system.
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import os
+from pathlib import Path
+from dotenv import load_dotenv
+
+# Load environment variables from .env file before importing other modules
+dotenv_path = Path(__file__).parent.parent / '.env'
+if dotenv_path.exists():
+    load_dotenv(dotenv_path=dotenv_path, encoding="latin-1")
+    print(f"Loaded environment variables from {dotenv_path}")
+else:
+    print(f"Warning: .env file not found at {dotenv_path}")
 
 from src.api import api_router
 from src.logger_config import setup_logging, get_logger, debug_mode_from_env
@@ -15,6 +25,14 @@ from src.services.model_service import ensure_model_dirs
 debug_mode = debug_mode_from_env()
 setup_logging(debug=debug_mode)
 logger = get_logger("energy_forecasting.main")
+
+# Log successful environment variable loading
+env_vars_loaded = all([
+    os.getenv('INFLUXDB_URL'), 
+    os.getenv('INFLUXDB_ORG'),
+    os.getenv('INFLUXDB_BUCKET')
+])
+logger.info("Environment configuration status", env_vars_loaded=env_vars_loaded)
 
 # Create FastAPI app
 app = FastAPI(title="UMS Forecasting Service")

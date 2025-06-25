@@ -2,16 +2,17 @@ from influxdb_client import InfluxDBClient
 from influxdb_client.client.write_api import SYNCHRONOUS
 import pandas as pd
 import os
-import json
 from datetime import datetime
 import pathlib
+from dotenv import load_dotenv
+from config.influxdb_config import load_influxdb_config
 
 class InfluxClient:
     """
     Client for interacting with InfluxDB to retrieve meter data
     """
     def __init__(self):
-        # Load configuration from JSON file
+        # Load configuration from environment variables
         self._load_config()
         
         # Initialize InfluxDB client
@@ -28,9 +29,7 @@ class InfluxClient:
         print(f"InfluxDB client initialized: URL={self.url}, org={self.org}")
     
     def _load_config(self):
-        """Load configuration from JSON file"""
-        from config.influxdb_config import load_influxdb_config
-        
+        """Load configuration from environment variables"""
         try:
             config = load_influxdb_config()
             self.url = config['url']

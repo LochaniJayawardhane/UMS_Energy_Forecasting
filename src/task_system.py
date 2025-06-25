@@ -7,6 +7,13 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, Optional
 from dataclasses import dataclass, asdict
 from enum import Enum
+from pathlib import Path
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+dotenv_path = Path(__file__).parent.parent / '.env'
+if dotenv_path.exists():
+    load_dotenv(dotenv_path=dotenv_path, encoding="latin-1")
 
 import pandas as pd
 from dramatiq.results import Results
@@ -179,7 +186,7 @@ class TaskTracker:
 # Global task tracker
 task_tracker = TaskTracker()
 
-@dramatiq.actor(store_results=True, max_retries=0)  # No retries for singleton behavior
+@dramatiq.actor(store_results=True, max_retries=0, time_limit=None)  # No retries for singleton behavior, no time limit
 def train_model_task(meter_id: str, meter_type: str, task_options: Dict[str, Any] = None):
     """
     Enhanced model training task with SINGLETON behavior and comprehensive logging.

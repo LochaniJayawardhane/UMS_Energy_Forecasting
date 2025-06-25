@@ -5,19 +5,12 @@ from datetime import datetime, timedelta
 import numpy as np
 import pandas as pd
 from weather_utils.location_manager import get_location
+from config.weather_config import load_weather_config as load_config_from_env
 
 
 def load_weather_config():
-    """Load weather API configuration from file"""
-    
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-   
-    config_path = os.path.join(os.path.dirname(current_dir), 'config', 'weather_config.json')
-    try:
-        with open(config_path, 'r') as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError) as e:
-        raise Exception(f"Cannot load weather_config.json from {config_path}. Please ensure the file exists and is valid. Error: {str(e)}")
+    """Load weather API configuration from environment variables"""
+    return load_config_from_env()
 
 
 WEATHER_CONFIG = load_weather_config()
@@ -63,7 +56,7 @@ def get_temperature_forecast(dates):
     
     # Validate API key
     if VISUAL_CROSSING_API_KEY == "your_visual_crossing_api_key_here":
-        raise Exception("Visual Crossing API key not configured. Please set VISUAL_CROSSING_API_KEY environment variable or update config/weather_config.json")
+        raise Exception("Visual Crossing API key not configured. Please set VISUAL_CROSSING_API_KEY environment variable")
     
     # Handle single date input
     single_date_input = False
@@ -423,7 +416,7 @@ def validate_temperature_forecast_accuracy(location=None, test_period_days=30):
         
     # Validate API key
     if VISUAL_CROSSING_API_KEY == "your_visual_crossing_api_key_here":
-        raise Exception("Visual Crossing API key not configured. Please set VISUAL_CROSSING_API_KEY environment variable or update config/weather_config.json")
+        raise Exception("Visual Crossing API key not configured. Please set VISUAL_CROSSING_API_KEY environment variable")
     
     try:
         # Test 1: Historical data retrieval (single date)

@@ -136,7 +136,6 @@ logs/
 
 # Configuration files with sensitive data
 config/*.json
-config/*.py
 !config/example_*
 
 

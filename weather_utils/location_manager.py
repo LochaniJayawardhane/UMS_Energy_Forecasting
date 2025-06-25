@@ -1,5 +1,8 @@
-import json
 import os
+import json
+from config.weather_config import get_location as get_location_from_env
+from config.weather_config import set_location as set_location_in_env
+from config.weather_config import load_weather_config as load_config_from_env
 
 def get_config_path():
     """Get the path to the weather config file"""
@@ -14,13 +17,10 @@ def ensure_config_dir():
     os.makedirs(config_dir, exist_ok=True)
 
 def load_weather_config():
-    """Load weather configuration"""
-    config_path = get_config_path()
-    try:
-        with open(config_path, 'r') as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError) as e:
-        raise Exception(f"Weather config file not found or invalid: {str(e)}. Please ensure {config_path} exists with proper location settings.")
+    """
+    Load weather configuration from environment variables
+    """
+    return load_config_from_env()
 
 def save_weather_config(config):
     """Save weather configuration"""
@@ -35,37 +35,24 @@ def save_weather_config(config):
 
 def get_location():
     """
-    Get the location information from weather_config.json
-
+    Get the location information from environment variables
     """
     try:
-        weather_config = load_weather_config()
-        location = weather_config["location"]
+        location = get_location_from_env()
         return location
     except KeyError:
-        raise Exception("Location not found in weather_config.json. Please set location using the /location/ endpoint.")
+        raise Exception("Location not found in environment variables. Please set location using the /location/ endpoint.")
     except Exception as e:
-        raise Exception(f"Failed to load location from weather_config.json. Error: {str(e)}")
+        raise Exception(f"Failed to load location from environment variables. Error: {str(e)}")
 
 def set_location(lat, lon, city):
     """
-    Set the location in weather_config.json
+    Set the location in environment variables
     
+    Note: This only modifies the in-memory values and will not persist across restarts.
+    To make permanent changes, update your .env file manually.
     """
-    ensure_config_dir()
-    
     try:
-        # Load existing config
-        weather_config = load_weather_config()
+        return set_location_in_env(lat, lon, city)
     except Exception as e:
-        raise Exception(f"Cannot load weather_config.json to update location. Please ensure the file exists and is valid. Error: {str(e)}")
-    
-    # Update location
-    weather_config["location"] = {
-        "lat": float(lat),
-        "lon": float(lon),
-        "city": city
-    }
-    
-    # Save updated config
-    return save_weather_config(weather_config) 
+        raise Exception(f"Cannot update location. Error: {str(e)}") 
