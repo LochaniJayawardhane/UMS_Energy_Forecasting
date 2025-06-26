@@ -38,31 +38,38 @@ def get_global_location() -> Dict:
         logger.error(f"Error getting global location: {str(e)}")
         return {"error": str(e)}
 
-def validate_temperature_accuracy(days: int = 30) -> Dict:
+def validate_temperature_accuracy(days: int = 30, latitude: float = None, longitude: float = None, city: str = None) -> Dict:
     """
     Validate the accuracy of temperature forecasting.
 
     """
     try:
-        error_metrics = validate_temperature_forecast_accuracy(test_period_days=days)
+        if latitude is None or longitude is None or city is None:
+            return {"error": "Location is required. Please provide latitude, longitude, and city."}
+            
+        location = {"lat": latitude, "lon": longitude, "city": city}
+        error_metrics = validate_temperature_forecast_accuracy(location=location, test_period_days=days)
         return error_metrics
     except Exception as e:
         logger.error(f"Error validating temperature accuracy: {str(e)}")
         return {"error": str(e)}
 
-def get_temperature_data(start_date: str, end_date: str) -> Dict:
+def get_temperature_data(start_date: str, end_date: str, latitude: float = None, longitude: float = None, city: str = None) -> Dict:
     """
     Get temperature data for a date range.
-    
     """
     try:
+        if latitude is None or longitude is None or city is None:
+            return {"error": "Location is required. Please provide latitude, longitude, and city."}
+            
         # Convert string dates to datetime objects if needed
         if isinstance(start_date, str):
             start_date = datetime.strptime(start_date, "%Y-%m-%d")
         if isinstance(end_date, str):
             end_date = datetime.strptime(end_date, "%Y-%m-%d")
             
-        temperature_series = get_temperature_series(start_date, end_date)
+        location = {"lat": latitude, "lon": longitude, "city": city}
+        temperature_series = get_temperature_series(start_date, end_date, location)
         return {
             "temperature_data": temperature_series,
             "start_date": start_date.strftime("%Y-%m-%d"),

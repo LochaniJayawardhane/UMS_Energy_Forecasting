@@ -18,7 +18,10 @@ def generate_forecast(
     meter_id: str, 
     meter_type: str, 
     start_date: str, 
-    end_date: str
+    end_date: str,
+    latitude: float,
+    longitude: float,
+    city: str
 ) -> Tuple[List[Dict], Optional[str]]:
     """
     Generate a consumption forecast for a specific meter.
@@ -28,6 +31,9 @@ def generate_forecast(
         meter_type: Type of meter (electricity/water)
         start_date: Start date in YYYY-MM-DD format
         end_date: End date in YYYY-MM-DD format
+        latitude: Location latitude
+        longitude: Location longitude
+        city: Location city name
         
     Returns:
         Tuple of (forecast_data, error_message)
@@ -35,6 +41,9 @@ def generate_forecast(
         - error_message: Error message if any, None if successful
     """
     try:
+        # Create location dictionary
+        location = {"lat": latitude, "lon": longitude, "city": city}
+        
         # Parse dates
         start_date_dt = pd.to_datetime(start_date)
         end_date_dt = pd.to_datetime(end_date)
@@ -69,6 +78,10 @@ def generate_forecast(
                 # Get historical data from InfluxDB
                 historical_data = get_historical_consumption_data(meter_id, meter_type, historical_dates)
                 
+                # Check if no data was found for any of the requested historical dates
+                if not historical_data or all(dt_str not in historical_data for dt_str in [str(dt.date()) for dt in historical_dates]):
+                    return [], f"No historical data is available for {meter_type} meter {meter_id} between {historical_dates[0].date()} and {historical_dates[-1].date()}"
+                
                 for dt in historical_dates:
                     dt_str = str(dt.date())  # Format as YYYY-MM-DD
                     if dt_str in historical_data:
@@ -93,8 +106,8 @@ def generate_forecast(
         # Handle forecast dates - return forecasted data with temperature
         if len(forecast_dates) > 0:
             try:
-                # Get temperature forecasts for future dates only
-                temperatures = get_temperature_forecast(forecast_dates)
+                # Get temperature forecasts for future dates only, passing location
+                temperatures = get_temperature_forecast(forecast_dates, location)
                 
                 # Create dataframe with temperature values
                 df_future = pd.DataFrame({

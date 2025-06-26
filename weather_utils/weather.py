@@ -17,13 +17,16 @@ WEATHER_CONFIG = load_weather_config()
 VISUAL_CROSSING_API_KEY = os.getenv("VISUAL_CROSSING_API_KEY", WEATHER_CONFIG["visual_crossing"]["api_key"])
 BASE_URL = WEATHER_CONFIG["visual_crossing"]["base_url"]
 
-def get_temperature_series(start_date, end_date):
+def get_temperature_series(start_date, end_date, location=None):
     """
     This is the main function for getting temperature data for date ranges.
     For past dates: Returns actual historical temperatures
     For future dates: Returns forecasted temperatures based on 3-year historical averages
 
     """
+    # Throw error if location is not provided
+    if location is None:
+        raise Exception("Location is required. Please provide latitude, longitude, and city.")
    
     if isinstance(start_date, str):
         start_date = datetime.strptime(start_date, "%Y-%m-%d")
@@ -34,7 +37,7 @@ def get_temperature_series(start_date, end_date):
     
     print(f"Retrieving temperature series for {len(date_range)} dates from {start_date.date()} to {end_date.date()}")
     
-    temperatures = get_temperature_forecast(date_range)
+    temperatures = get_temperature_forecast(date_range, location)
     
     temperature_series = []
     for i, date in enumerate(date_range):
@@ -46,13 +49,14 @@ def get_temperature_series(start_date, end_date):
     print(f"Successfully generated temperature series with {len(temperature_series)} data points")
     return temperature_series
 
-def get_temperature_forecast(dates):
+def get_temperature_forecast(dates, location=None):
     """
     Get temperature data for requested dates using Visual Crossing Weather API.
 
     """
-   
-    location = get_location()
+    # Throw error if location is not provided
+    if location is None:
+        raise Exception("Location is required. Please provide latitude, longitude, and city.")
     
     # Validate API key
     if VISUAL_CROSSING_API_KEY == "your_visual_crossing_api_key_here":
@@ -410,9 +414,9 @@ def validate_temperature_forecast_accuracy(location=None, test_period_days=30):
     Tests both historical data retrieval and future forecasting logic, including date range series.
 
     """
-    # Use provided location or get global location
+    # Throw error if location is not provided
     if location is None:
-        location = get_location()
+        raise Exception("Location is required. Please provide latitude, longitude, and city.")
         
     # Validate API key
     if VISUAL_CROSSING_API_KEY == "your_visual_crossing_api_key_here":
@@ -422,32 +426,32 @@ def validate_temperature_forecast_accuracy(location=None, test_period_days=30):
         # Test 1: Historical data retrieval (single date)
         historical_date = datetime.now() - timedelta(days=7)
         print(f"Testing historical data retrieval for: {historical_date.date()}")
-        historical_temp = get_temperature_forecast(historical_date)
+        historical_temp = get_temperature_forecast(historical_date, location)
         
         # Test 2: Multiple historical dates
         historical_dates = pd.date_range(start=historical_date, periods=3, freq='D')
-        historical_temps = get_temperature_forecast(historical_dates)
+        historical_temps = get_temperature_forecast(historical_dates, location)
         
         # Test 3: Future date forecasting (should use 3-year average)
         future_date = datetime.now() + timedelta(days=30)
         print(f"Testing future forecasting for: {future_date.date()}")
-        future_temp = get_temperature_forecast(future_date)
+        future_temp = get_temperature_forecast(future_date, location)
         
         # Test 4: Future date range forecasting
         future_dates = pd.date_range(start=future_date, periods=3, freq='D')
-        future_temps = get_temperature_forecast(future_dates)
+        future_temps = get_temperature_forecast(future_dates, location)
         
         # Test 5: Temperature series for date range (NEW TEST)
         series_start = future_date
         series_end = future_date + timedelta(days=6)  # 7-day series
         print(f"Testing temperature series for range: {series_start.date()} to {series_end.date()}")
-        temperature_series = get_temperature_series(series_start, series_end)
+        temperature_series = get_temperature_series(series_start, series_end, location)
         
         # Test 6: Mixed historical/future series
         mixed_start = datetime.now() - timedelta(days=3)
         mixed_end = datetime.now() + timedelta(days=3)
         print(f"Testing mixed historical/future series: {mixed_start.date()} to {mixed_end.date()}")
-        mixed_series = get_temperature_series(mixed_start, mixed_end)
+        mixed_series = get_temperature_series(mixed_start, mixed_end, location)
         
         return {
             "status": "success",
@@ -498,10 +502,9 @@ def validate_temperature_forecast_accuracy(location=None, test_period_days=30):
             "features": {
                 "single_date_support": True,
                 "multiple_date_support": True,
-                "date_range_series": True,
-                "mixed_historical_future": True,
-                "bulk_api_optimization": True,
-                "complete_series_guarantee": True
+                "date_range_support": True,
+                "historical_data": True,
+                "forecast_data": True
             }
         }
         

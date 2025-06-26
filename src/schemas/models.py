@@ -18,6 +18,9 @@ class ForecastRequest(BaseModel):
     meter_type: str  # 'electricity' or 'water'
     start_date: str  # Start date in YYYY-MM-DD format
     end_date: str    # End date in YYYY-MM-DD format
+    latitude: float   # Location latitude
+    longitude: float  # Location longitude
+    city: str        # Location city name
 
 class ForecastResponse(BaseModel):
     forecast_data: List[Dict]  # Each dict: {datetime, value, type, temperature (optional)}

@@ -26,10 +26,22 @@ def forecast(request: ForecastRequest):
         raise HTTPException(status_code=400, detail=f"Invalid date format. Use YYYY-MM-DD format. Error: {str(e)}")
     
     # Generate forecast using the forecast service
-    forecast_data, error = generate_forecast(meter_id, meter_type, start_date, end_date)
+    forecast_data, error = generate_forecast(
+        meter_id, 
+        meter_type, 
+        start_date, 
+        end_date,
+        request.latitude,
+        request.longitude,
+        request.city
+    )
     
     if error:
-        raise HTTPException(status_code=404, detail=error)
+        # Check if it's a no historical data error
+        if "No historical data is available" in error:
+            raise HTTPException(status_code=404, detail=error)
+        # Other errors
+        raise HTTPException(status_code=500, detail=error)
     
     if not forecast_data:
         raise HTTPException(status_code=404, detail="No forecast data available")
