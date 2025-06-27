@@ -13,6 +13,7 @@ from datetime import timedelta
 from src.utils import create_features, train_electricity_model, train_water_model
 from src.logger_config import get_logger
 from src.services.data_service import get_training_data, get_historical_consumption_data, get_last_recorded_date
+from config.model_config import get_model_path
 
 logger = get_logger("energy_forecasting.services.model")
 
@@ -23,23 +24,33 @@ def get_project_root():
 def ensure_model_dirs():
     """Ensure model directories exist."""
     project_root = get_project_root()
-    os.makedirs(os.path.join(project_root, 'models/electricity'), exist_ok=True)
-    os.makedirs(os.path.join(project_root, 'models/water'), exist_ok=True)
+    base_model_path = get_model_path()
+    
+    # First ensure the base model directory exists
+    base_dir = os.path.join(project_root, base_model_path)
+    os.makedirs(base_dir, exist_ok=True)
+    logger.info(f"Ensuring model base directory exists: {base_dir}")
+    
+    # Then create meter type subdirectories
+    os.makedirs(os.path.join(base_dir, 'electricity'), exist_ok=True)
+    os.makedirs(os.path.join(base_dir, 'water'), exist_ok=True)
+    logger.debug("Model directories verified")
 
-def get_model_path(meter_id: str, meter_type: str) -> str:
+def get_model_file_path(meter_id: str, meter_type: str) -> str:
     """
     Get the path to a model file.
     
     """
     ensure_model_dirs()
-    return f"models/{meter_type}/{meter_id}.h5"
+    base_model_path = get_model_path()
+    return f"{base_model_path}/{meter_type}/{meter_id}.h5"
 
 def load_model(meter_id: str, meter_type: str) -> Optional[xgb.XGBRegressor]:
     """
     Load a trained model for a specific meter.
     
     """
-    model_path = get_model_path(meter_id, meter_type)
+    model_path = get_model_file_path(meter_id, meter_type)
     
     if not os.path.exists(model_path):
         logger.warning(f"Model not found at {model_path}")
@@ -75,7 +86,7 @@ def train_model(meter_id: str, meter_type: str) -> Tuple[bool, str, Dict]:
             return False, f"Unsupported meter type: {meter_type}", {}
             
         # Save model
-        model_path = get_model_path(meter_id, meter_type)
+        model_path = get_model_file_path(meter_id, meter_type)
         model.save_model(model_path)
         
         # Calculate training metrics
@@ -166,25 +177,37 @@ def get_available_models() -> Dict[str, List[str]]:
     Returns:
         Dictionary mapping meter types to lists of meter IDs with trained models
     """
+    # Always ensure directories exist first
     ensure_model_dirs()
+    
     project_root = get_project_root()
+    base_model_path = get_model_path()
+    base_dir = os.path.join(project_root, base_model_path)
     result = {'electricity': [], 'water': []}
     
-    # Check electricity models
-    electricity_dir = os.path.join(project_root, 'models', 'electricity')
-    if os.path.exists(electricity_dir):
-        for file in os.listdir(electricity_dir):
-            if file.endswith('.h5'):
-                meter_id = file.replace('.h5', '')
-                result['electricity'].append(meter_id)
-                
-    # Check water models
-    water_dir = os.path.join(project_root, 'models', 'water')
-    if os.path.exists(water_dir):
-        for file in os.listdir(water_dir):
-            if file.endswith('.h5'):
-                meter_id = file.replace('.h5', '')
-                result['water'].append(meter_id)
+    # Safely check both directories
+    try:
+        # Check electricity models
+        electricity_dir = os.path.join(base_dir, 'electricity')
+        if os.path.exists(electricity_dir) and os.path.isdir(electricity_dir):
+            for file in os.listdir(electricity_dir):
+                if file.endswith('.h5'):
+                    meter_id = file.replace('.h5', '')
+                    result['electricity'].append(meter_id)
+        else:
+            logger.warning(f"Electricity models directory not found at: {electricity_dir}")
+                    
+        # Check water models
+        water_dir = os.path.join(base_dir, 'water')
+        if os.path.exists(water_dir) and os.path.isdir(water_dir):
+            for file in os.listdir(water_dir):
+                if file.endswith('.h5'):
+                    meter_id = file.replace('.h5', '')
+                    result['water'].append(meter_id)
+        else:
+            logger.warning(f"Water models directory not found at: {water_dir}")
+    except Exception as e:
+        logger.error(f"Error accessing model directories: {str(e)}")
                 
     return result
 
@@ -202,7 +225,7 @@ def test_model(meter_id: str, meter_type: str, test_size: float = 0.2) -> Tuple[
     """
     try:
         # Check if model exists
-        model_path = get_model_path(meter_id, meter_type)
+        model_path = get_model_file_path(meter_id, meter_type)
         if not os.path.exists(model_path):
             return {}, f"No trained model found for {meter_type} meter {meter_id}. Please train a model first."
         

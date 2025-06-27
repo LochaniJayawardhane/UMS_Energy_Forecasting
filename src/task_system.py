@@ -23,6 +23,7 @@ from src.dramatiq_broker import broker, get_broker
 from src.influx_client import InfluxClient
 from src.utils import train_electricity_model, train_water_model
 from src.logger_config import TaskLogger, get_logger
+from config.model_config import get_model_path
 
 logger = get_logger("task_system")
 
@@ -347,7 +348,15 @@ def train_model_task(meter_id: str, meter_type: str, task_options: Dict[str, Any
         
         # Get project root directory (parent of src)
         project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        model_dir = os.path.join(project_root, f"models/{meter_type}")
+        base_model_path = get_model_path()
+        
+        # Ensure base model directory exists
+        base_dir = os.path.join(project_root, base_model_path)
+        os.makedirs(base_dir, exist_ok=True)
+        task_logger.info("Ensuring model base directory exists", base_dir=base_dir)
+        
+        # Create meter type directory
+        model_dir = os.path.join(base_dir, meter_type)
         os.makedirs(model_dir, exist_ok=True)
         model_path = os.path.join(model_dir, f"{meter_id}.h5")
         
