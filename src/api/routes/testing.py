@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from src.schemas.models import ModelTestRequest, ModelTestResponse
 from src.services.model_service import test_model, test_all_models
 from src.logger_config import get_logger
@@ -28,7 +28,14 @@ def test_model_accuracy(request: ModelTestRequest):
     
     try:
         # Test model using model service
-        test_results, error = test_model(meter_id, meter_type, test_size)
+        test_results, error = test_model(
+            meter_id, 
+            meter_type, 
+            test_size, 
+            request.latitude, 
+            request.longitude, 
+            request.city
+        )
         
         if error:
             raise HTTPException(status_code=404, detail=error)
@@ -42,7 +49,12 @@ def test_model_accuracy(request: ModelTestRequest):
         raise HTTPException(status_code=500, detail=f"Failed to test model: {str(e)}")
 
 @router.post("/all_models/")
-def test_all_available_models(test_size: float = 0.2):
+def test_all_available_models(
+    test_size: float = 0.2,
+    latitude: float = Query(..., description="Location latitude (required for temperature data)"),
+    longitude: float = Query(..., description="Location longitude (required for temperature data)"),
+    city: str = Query(..., description="Location city name (required for temperature data)")
+):
     """
     Test all available trained models and return their accuracy metrics.
     
@@ -53,7 +65,7 @@ def test_all_available_models(test_size: float = 0.2):
     
     try:
         # Test all models using model service
-        results = test_all_models(test_size)
+        results = test_all_models(test_size, latitude, longitude, city)
         
         if "error" in results:
             raise HTTPException(status_code=500, detail=results["error"])

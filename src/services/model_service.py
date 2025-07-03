@@ -211,7 +211,7 @@ def get_available_models() -> Dict[str, List[str]]:
                 
     return result
 
-def test_model(meter_id: str, meter_type: str, test_size: float = 0.2) -> Tuple[Dict, Optional[str]]:
+def test_model(meter_id: str, meter_type: str, test_size: float = 0.2, latitude: float = None, longitude: float = None, city: str = None) -> Tuple[Dict, Optional[str]]:
     """
     Test a trained model using historical data.
     
@@ -219,70 +219,130 @@ def test_model(meter_id: str, meter_type: str, test_size: float = 0.2) -> Tuple[
         meter_id: ID of the meter
         meter_type: Type of meter (electricity/water)
         test_size: Proportion of data to use for testing (0-1)
+        latitude: Location latitude (required for temperature data)
+        longitude: Location longitude (required for temperature data)
+        city: Location city name (required for temperature data)
         
     Returns:
         Tuple of (test_results, error_message)
     """
     try:
+        # Validate location parameters
+        if latitude is None or longitude is None or city is None:
+            return {}, "Location is required. Please provide latitude, longitude, and city."
+            
         # Check if model exists
         model_path = get_model_file_path(meter_id, meter_type)
         if not os.path.exists(model_path):
             return {}, f"No trained model found for {meter_type} meter {meter_id}. Please train a model first."
         
-        # Get last recorded date
-        last_date = get_last_recorded_date(meter_id, meter_type)
+        logger.info(f"Testing model for {meter_type} meter {meter_id}")
         
-        # Generate date range for historical data (90 days)
-        end_date = last_date
-        start_date = end_date - timedelta(days=90)
-        date_range = pd.date_range(start=start_date, end=end_date, freq='D')
+        # Initialize InfluxDB client to fetch ALL available data
+        from src.influx_client import InfluxClient
+        influx_client = InfluxClient()
         
-        # Get historical consumption data
-        historical_data = get_historical_consumption_data(meter_id, meter_type, date_range)
+        # Fetch all data for this meter from InfluxDB (no date constraints)
+        df = influx_client.get_meter_data(
+            meter_id=meter_id,
+            meter_type=meter_type
+            # No date parameters - will fetch all available data
+        )
         
-        if not historical_data:
-            return {}, f"No historical data found for {meter_type} meter {meter_id}"
+        # Close the InfluxDB client
+        influx_client.close()
         
-        # Import temperature data function
-        from weather_utils.weather import get_temperature_series
+        if df.empty:
+            return {}, f"No data found for {meter_type} meter {meter_id}"
         
-        # Get temperature data for the date range
-        temperature_series = get_temperature_series(start_date, end_date)
+        logger.info(f"Loaded {len(df)} records for {meter_type} meter {meter_id}")
         
-        # Create temperature dictionary for easier lookup
-        temperature_dict = {item['date']: item['temperature'] for item in temperature_series}
+        # Preprocessing - same as in training
+        df = df.sort_values('DateTime')
         
-        # Create DataFrame with DateTime, Consumption, and Temperature
-        df = pd.DataFrame({
-            'DateTime': date_range,
-            'Temperature': [temperature_dict.get(str(date.date()), 20.0) for date in date_range],  # Default to 20°C if missing
-            'Consumption': [0] * len(date_range)  # Placeholder values
-        })
+        # Handle missing or zero temperature values
+        # Set DateTime as index for time-based interpolation
+        df = df.set_index('DateTime')
+        df['Temperature'] = df['Temperature'].replace(0, np.nan)
+        df['Temperature'] = df['Temperature'].interpolate(method='time')
+        # Reset index to keep DateTime as a column
+        df = df.reset_index()
         
-        # Fill in actual consumption values
-        for i, date in enumerate(date_range):
-            date_str = str(date.date())
-            if date_str in historical_data:
-                df.loc[i, 'Consumption'] = historical_data[date_str]
-        
-        # Create features
-        X = create_features(df, meter_id, meter_type)
-        
-        # Create target variable
-        y = df['Consumption'].values
-        
-        # Split data into train and test sets
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=42)
-        
-        # Load model
+        # Load the trained model first to check what features it expects
         model = load_model(meter_id, meter_type)
         if model is None:
             return {}, f"Failed to load model for {meter_type} meter {meter_id}"
         
-        # Make predictions
+        # Feature engineering
+        features = create_features(df, meter_id=meter_id, meter_type=meter_type)
+        
+        # Check what features the model actually expects
+        model_feature_names = model.feature_names_in_ if hasattr(model, 'feature_names_in_') else None
+        model_n_features = model.n_features_in_ if hasattr(model, 'n_features_in_') else len(features.columns)
+        
+        logger.info(f"Model expects {model_n_features} features")
+        if model_feature_names is not None:
+            logger.info(f"Model feature names: {model_feature_names}")
+        
+        # Adapt features to match what the model expects
+        if model_feature_names is not None:
+            # If model has feature names, ensure our features match exactly
+            expected_features = list(model_feature_names)
+            current_features = list(features.columns)
+            
+            # Check if we have all expected features
+            missing_features = set(expected_features) - set(current_features)
+            extra_features = set(current_features) - set(expected_features)
+            
+            if missing_features:
+                logger.warning(f"Missing features that model expects: {missing_features}")
+                # Add missing features with default values
+                for feat in missing_features:
+                    if feat == 'consumption_rolling_mean_24h':
+                        # Use the same default as consumption_lag_24
+                        if 'consumption_lag_24' in features.columns:
+                            features[feat] = features['consumption_lag_24'].copy()
+                        else:
+                            features[feat] = 0.01
+                    else:
+                        features[feat] = 0.0
+            
+            if extra_features:
+                logger.warning(f"Extra features that model doesn't expect: {extra_features}")
+                # Remove extra features
+                features = features.drop(columns=list(extra_features))
+            
+            # Reorder features to match model expectations
+            features = features[expected_features]
+        
+        # Apply the same scaling as used in training
+        if meter_type == "electricity":
+            from sklearn.preprocessing import RobustScaler
+            scaler = RobustScaler()
+            numerical_cols = ['temp_rolling_mean_24h', 'consumption_lag_24', 'consumption_rolling_mean_24h']
+        else:  # water
+            from sklearn.preprocessing import StandardScaler
+            scaler = StandardScaler()
+            numerical_cols = ['temp_rolling_mean_24h', 'consumption_lag_24', 'consumption_rolling_mean_24h']
+        
+        # Apply scaling only to existing columns
+        existing_numerical_cols = [col for col in numerical_cols if col in features.columns]
+        if existing_numerical_cols:
+            logger.info(f"Scaling features: {existing_numerical_cols}")
+            features[existing_numerical_cols] = scaler.fit_transform(features[existing_numerical_cols])
+        
+        X = features
+        y = df['Consumption']
+        
+        # Split the data using the same random state as training for consistency
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=42)
+        
+        logger.info(f"Split data: {len(X_train)} training samples, {len(X_test)} testing samples")
+        
+        # Make predictions on test set
         y_pred = model.predict(X_test)
         
-        # Evaluate model
+        # Calculate evaluation metrics
         metrics = evaluate_model_accuracy(y_test, y_pred, meter_type)
         
         # Add test details
@@ -290,10 +350,16 @@ def test_model(meter_id: str, meter_type: str, test_size: float = 0.2) -> Tuple[
             "metrics": metrics,
             "test_details": {
                 "test_size": test_size,
-                "test_samples": len(y_test),
-                "date_range": {
-                    "start": start_date.strftime("%Y-%m-%d"),
-                    "end": end_date.strftime("%Y-%m-%d")
+                "test_samples": len(X_test),
+                "total_samples": len(df),
+                "model_info": {
+                    "meter_id": meter_id,
+                    "meter_type": meter_type,
+                    "model_path": model_path,
+                    "total_training_samples": len(df),
+                    "training_samples_used": len(X_train),
+                    "test_samples": len(X_test),
+                    "test_size_ratio": test_size
                 }
             }
         }
@@ -304,17 +370,27 @@ def test_model(meter_id: str, meter_type: str, test_size: float = 0.2) -> Tuple[
         logger.error(f"Error testing model: {str(e)}")
         return {}, f"Failed to test model: {str(e)}"
 
-def test_all_models(test_size: float = 0.2) -> Dict:
+def test_all_models(test_size: float = 0.2, latitude: float = None, longitude: float = None, city: str = None) -> Dict:
     """
     Test all available trained models and return their accuracy metrics.
     
     Args:
         test_size: Proportion of data to use for testing (0-1)
+        latitude: Location latitude (required for temperature data)
+        longitude: Location longitude (required for temperature data)
+        city: Location city name (required for temperature data)
         
     Returns:
         Dictionary with test results for all models
     """
     try:
+        # Validate location parameters
+        if latitude is None or longitude is None or city is None:
+            return {
+                "error": "Location is required. Please provide latitude, longitude, and city.",
+                "timestamp": pd.Timestamp.now().isoformat()
+            }
+            
         # Get all available models
         available_models = get_available_models()
         
@@ -325,7 +401,7 @@ def test_all_models(test_size: float = 0.2) -> Dict:
         
         # Test electricity models
         for meter_id in available_models['electricity']:
-            test_result, error = test_model(meter_id, 'electricity', test_size)
+            test_result, error = test_model(meter_id, 'electricity', test_size, latitude, longitude, city)
             if error is None:
                 results['electricity'].append({
                     "meter_id": meter_id,
@@ -339,7 +415,7 @@ def test_all_models(test_size: float = 0.2) -> Dict:
                 
         # Test water models
         for meter_id in available_models['water']:
-            test_result, error = test_model(meter_id, 'water', test_size)
+            test_result, error = test_model(meter_id, 'water', test_size, latitude, longitude, city)
             if error is None:
                 results['water'].append({
                     "meter_id": meter_id,

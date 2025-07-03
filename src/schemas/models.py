@@ -39,6 +39,9 @@ class ModelTestRequest(BaseModel):
     meter_id: str
     meter_type: str  # 'electricity' or 'water'
     test_size: float = 0.2  # Proportion of data to use for testing (default 20%)
+    latitude: float  # Location latitude (required for temperature data)
+    longitude: float  # Location longitude (required for temperature data)
+    city: str  # Location city name (required for temperature data)
 
 class ModelTestResponse(BaseModel):
     test_results: Dict 
