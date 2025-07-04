@@ -1,0 +1,85 @@
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: api
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - INFLUXDB_URL=${INFLUXDB_URL}
+      - INFLUXDB_TOKEN=${INFLUXDB_TOKEN}
+      - INFLUXDB_ORG=${INFLUXDB_ORG}
+      - INFLUXDB_BUCKET=${INFLUXDB_BUCKET}
+      - VISUAL_CROSSING_API_KEY=${VISUAL_CROSSING_API_KEY}
+      - VISUAL_CROSSING_UNITS=${VISUAL_CROSSING_UNITS}
+      - VISUAL_CROSSING_BASE_URL=${VISUAL_CROSSING_BASE_URL}
+      - LOCATION_LAT=${LOCATION_LAT}
+      - LOCATION_LON=${LOCATION_LON}
+      - LOCATION_CITY=${LOCATION_CITY}
+      - DEBUG=${DEBUG:-false}
+    volumes:
+      - ./models:/app/models:rw
+      - ./data:/app/data:rw
+      - ./logs:/app/logs:rw
+    depends_on:
+      - redis
+      - influxdb
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: worker
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - INFLUXDB_URL=${INFLUXDB_URL}
+      - INFLUXDB_TOKEN=${INFLUXDB_TOKEN}
+      - INFLUXDB_ORG=${INFLUXDB_ORG}
+      - INFLUXDB_BUCKET=${INFLUXDB_BUCKET}
+      - VISUAL_CROSSING_API_KEY=${VISUAL_CROSSING_API_KEY}
+      - VISUAL_CROSSING_UNITS=${VISUAL_CROSSING_UNITS}
+      - VISUAL_CROSSING_BASE_URL=${VISUAL_CROSSING_BASE_URL}
+      - LOCATION_LAT=${LOCATION_LAT}
+      - LOCATION_LON=${LOCATION_LON}
+      - LOCATION_CITY=${LOCATION_CITY}
+      - DEBUG=${DEBUG:-false}
+    volumes:
+      - ./models:/app/models:rw
+      - ./data:/app/data:rw
+      - ./logs:/app/logs:rw
+    depends_on:
+      - redis
+      - influxdb
+    restart: unless-stopped
+
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+
+  influxdb:
+    image: influxdb:latest
+    ports:
+      - "8086:8086"
+    volumes:
+      - influxdb-data:/var/lib/influxdb2
+    environment:
+      - DOCKER_INFLUXDB_INIT_MODE=setup
+      - DOCKER_INFLUXDB_INIT_USERNAME=admin
+      - DOCKER_INFLUXDB_INIT_PASSWORD=password
+      - DOCKER_INFLUXDB_INIT_ORG=${INFLUXDB_ORG}
+      - DOCKER_INFLUXDB_INIT_BUCKET=${INFLUXDB_BUCKET}
+      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=${INFLUXDB_TOKEN}
+    restart: unless-stopped
+
+volumes:
+  redis-data:
+  influxdb-data: 

@@ -19,11 +19,12 @@ def load_meter_data(meter_type="electricity"):
         # Get InfluxDB connection parameters from JSON configuration
         url, token, org, bucket = get_influxdb_config()
     
-    print(f"InfluxDB Connection:")
-    print(f"URL: {url}")
-    print(f"Organization: {org}")
-    print(f"Bucket: {bucket}")
-    print(f"Token: {'*' * 5}...{token[-5:] if token else 'Not set'}")
+        # Print connection info (inside the try block)
+        print(f"InfluxDB Connection:")
+        print(f"URL: {url}")
+        print(f"Organization: {org}")
+        print(f"Bucket: {bucket}")
+        print(f"Token: {'*' * 5}...{token[-5:] if token else 'Not set'}")
     except Exception as e:
         print(f"Error loading InfluxDB configuration: {e}")
         return

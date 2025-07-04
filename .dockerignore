@@ -1,0 +1,57 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+ENV/
+env/
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Local development
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+
+# Data directories (will be mounted as volumes)
+data/
+models/
+logs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Temp files
+.DS_Store
+Thumbs.db 

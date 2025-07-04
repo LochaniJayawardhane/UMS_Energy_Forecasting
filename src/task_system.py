@@ -21,7 +21,7 @@ from dramatiq.results.backends import RedisBackend
 
 from src.dramatiq_broker import broker, get_broker
 from src.influx_client import InfluxClient
-from src.utils import train_electricity_model, train_water_model
+# Import moved to local scope in train_model_task to avoid circular imports
 from src.logger_config import TaskLogger, get_logger
 from config.model_config import get_model_path
 
@@ -329,10 +329,13 @@ def train_model_task(meter_id: str, meter_type: str, task_options: Dict[str, Any
         if check_if_cancelled():
             return cancel_self()
         
+        # Import locally to avoid circular imports
+        from src.utils import train_electricity_model, train_water_model
+        
         if meter_type == "electricity":
-            model = train_electricity_model(data)
+            model = train_electricity_model(data, task_id=task_id)
         else:
-            model = train_water_model(data)
+            model = train_water_model(data, task_id=task_id)
             
         training_time = time.time() - training_start_time
         task_logger.info("Model training completed", training_time_seconds=round(training_time, 2))
